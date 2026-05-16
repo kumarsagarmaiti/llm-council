@@ -42,13 +42,31 @@ export default function Settings({
   const [installLogs, setInstallLogs] = useState([]);
   const [confirmModel, setConfirmModel] = useState(null);
   const logEndRef = useRef(null);
+  const sortButtonRef = useRef(null);
+  const sortOptionRefs = useRef([]);
   const activePullState = pullingModel ? normalizePullProgress(pullProgress) : null;
+  const sortMenuId = 'model-sort-menu';
 
   useEffect(() => { loadData(); }, []);
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [installLogs]);
+
+  useEffect(() => {
+    if (!sortOpen) {
+      return;
+    }
+
+    const selectedIndex = Math.max(
+      0,
+      SORT_OPTIONS.findIndex((option) => option.value === sortBy),
+    );
+
+    requestAnimationFrame(() => {
+      sortOptionRefs.current[selectedIndex]?.focus();
+    });
+  }, [sortOpen, sortBy]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -103,6 +121,64 @@ export default function Settings({
     } catch (error) {
       alert('Delete failed');
       console.error('Failed to delete model:', error);
+    }
+  };
+
+  const openSortMenu = () => {
+    setSortOpen(true);
+  };
+
+  const closeSortMenu = () => {
+    setSortOpen(false);
+    sortButtonRef.current?.focus();
+  };
+
+  const selectSortOption = (value) => {
+    setSortBy(value);
+    closeSortMenu();
+  };
+
+  const handleSortTriggerKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSortMenu();
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      openSortMenu();
+    }
+  };
+
+  const handleSortOptionKeyDown = (event, index, value) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSortMenu();
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectSortOption(value);
+      return;
+    }
+
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+
+      let nextIndex = index;
+      if (event.key === 'ArrowDown') {
+        nextIndex = (index + 1) % SORT_OPTIONS.length;
+      } else if (event.key === 'ArrowUp') {
+        nextIndex = (index - 1 + SORT_OPTIONS.length) % SORT_OPTIONS.length;
+      } else if (event.key === 'Home') {
+        nextIndex = 0;
+      } else if (event.key === 'End') {
+        nextIndex = SORT_OPTIONS.length - 1;
+      }
+
+      sortOptionRefs.current[nextIndex]?.focus();
     }
   };
 
@@ -216,22 +292,46 @@ export default function Settings({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <div className="custom-sort" onClick={() => setSortOpen(o => !o)}>
-                  <span className="custom-sort-value">
-                    {SORT_OPTIONS.find(o => o.value === sortBy)?.label}
-                  </span>
-                  <span className="custom-sort-arrow">{sortOpen ? '▴' : '▾'}</span>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    ref={sortButtonRef}
+                    className="custom-sort"
+                    onClick={() => setSortOpen((o) => !o)}
+                    onKeyDown={handleSortTriggerKeyDown}
+                    aria-expanded={sortOpen}
+                    aria-controls={sortMenuId}
+                    aria-haspopup="listbox"
+                  >
+                    <span className="custom-sort-value">
+                      {SORT_OPTIONS.find(o => o.value === sortBy)?.label}
+                    </span>
+                    <span className="custom-sort-arrow">{sortOpen ? '▴' : '▾'}</span>
+                  </button>
                   {sortOpen && (
-                    <div className="custom-sort-menu">
-                      {SORT_OPTIONS.map(opt => (
-                        <div
-                          key={opt.value}
-                          className={`custom-sort-option ${sortBy === opt.value ? 'active' : ''}`}
-                          onClick={(e) => { e.stopPropagation(); setSortBy(opt.value); setSortOpen(false); }}
-                        >
-                          {opt.label}
-                        </div>
-                      ))}
+                    <div className="custom-sort-menu" id={sortMenuId} role="listbox">
+                      {SORT_OPTIONS.map((opt) => {
+                        const index = SORT_OPTIONS.findIndex((option) => option.value === opt.value);
+                        return (
+                          <button
+                            key={opt.value}
+                            ref={(el) => {
+                              sortOptionRefs.current[index] = el;
+                            }}
+                            type="button"
+                            className={`custom-sort-option ${sortBy === opt.value ? 'active' : ''}`}
+                            role="option"
+                            aria-selected={sortBy === opt.value}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              selectSortOption(opt.value);
+                            }}
+                            onKeyDown={(event) => handleSortOptionKeyDown(event, index, opt.value)}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -261,7 +361,7 @@ export default function Settings({
                 )}
 
                 {sortedRecommendations.map((model) => {
-                  const isInstalled = Array.isArray(localModels) && localModels.some(m => m?.name?.startsWith(model.name));
+                  const isInstalled = Array.isArray(localModels) && localModels.some(m => m?.name === model.name);
                   const isDownloading = pullingModel === model.name;
                   const pullState = isDownloading ? normalizePullProgress(pullProgress) : null;
 

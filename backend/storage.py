@@ -26,6 +26,9 @@ def load_conversation_file(path: str) -> Optional[Dict[str, Any]]:
     try:
         with open(path, 'r', encoding='utf-8') as f:
             conversation = json.load(f)
+            if not isinstance(conversation, dict):
+                print(f"Skipping unreadable conversation file {path}: expected object, got {type(conversation).__name__}")
+                return None
             return normalize_conversation(conversation)
     except (OSError, json.JSONDecodeError) as exc:
         print(f"Skipping unreadable conversation file {path}: {exc}")
@@ -135,13 +138,19 @@ def list_conversations() -> List[Dict[str, Any]]:
             data = load_conversation_file(path)
             if data is None:
                 continue
+            conversation_id = data.get("id")
+            created_at = data.get("created_at")
+            messages = data.get("messages")
+            if not conversation_id or not created_at or not isinstance(messages, list):
+                print(f"Skipping malformed conversation file {path}: missing required fields")
+                continue
 
             # Return metadata only
             conversations.append({
-                "id": data["id"],
-                "created_at": data["created_at"],
+                "id": conversation_id,
+                "created_at": created_at,
                 "title": data.get("title", "New Conversation"),
-                "message_count": len(data["messages"])
+                "message_count": len(messages)
             })
 
     # Sort by creation time, newest first
@@ -226,7 +235,9 @@ def delete_conversation(conversation_id: str) -> bool:
         True if deleted, False otherwise
     """
     path = get_conversation_path(conversation_id)
-    if os.path.exists(path):
+    try:
         os.remove(path)
         return True
+    except FileNotFoundError:
+        return False
     return False

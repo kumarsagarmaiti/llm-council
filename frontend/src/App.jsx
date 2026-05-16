@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import Settings from './components/Settings';
@@ -17,6 +17,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
+  const currentConversationIdRef = useRef(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -100,7 +101,9 @@ function App() {
   async function loadConversation(id) {
     try {
       const conv = await api.getConversation(id);
-      setCurrentConversation(conv);
+      if (currentConversationIdRef.current === id) {
+        setCurrentConversation(conv);
+      }
     } catch (error) {
       console.error('Failed to load conversation:', error);
     }
@@ -180,6 +183,10 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    currentConversationIdRef.current = currentConversationId;
+  }, [currentConversationId]);
+
   // Load conversation details when selected
   useEffect(() => {
     if (currentConversationId) {
@@ -237,8 +244,8 @@ function App() {
       // Optimistically add user message to UI
       const userMessage = { role: 'user', content };
       setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
+        ...(prev ?? { id: currentConversationId, title: '', messages: [] }),
+        messages: [...(prev?.messages ?? []), userMessage],
       }));
 
       // Create a partial assistant message
@@ -256,8 +263,8 @@ function App() {
       };
 
       setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, assistantMessage],
+        ...(prev ?? { id: currentConversationId, title: '', messages: [] }),
+        messages: [...(prev?.messages ?? []), assistantMessage],
       }));
 
       if (manualResponses) {
@@ -383,8 +390,8 @@ function App() {
     } catch (error) {
       console.error('Failed to send message:', error);
       setCurrentConversation((prev) => ({
-        ...prev,
-        messages: prev.messages.slice(0, -2),
+        ...(prev ?? { id: currentConversationId, title: '', messages: [] }),
+        messages: (prev?.messages ?? []).slice(0, -2),
       }));
       setIsLoading(false);
     }

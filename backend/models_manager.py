@@ -130,11 +130,17 @@ async def discover_ollama_library() -> List[Dict[str, Any]]:
 
 async def pull_model_stream(model_name: str):
     """Stream download progress and track state."""
+    existing_pull = active_pulls.get(model_name)
+    if existing_pull is not None:
+        yield f"data: {json.dumps({'status': 'already_in_progress', 'last_progress': existing_pull.get('last_progress', {'status': 'starting'})})}\n\n"
+        return
+
     task = asyncio.current_task()
     active_pulls[model_name] = {"task": task, "last_progress": {"status": "starting"}}
+    timeout = httpx.Timeout(connect=5.0, read=600.0, write=5.0, pool=5.0)
     
     try:
-        async with httpx.AsyncClient(timeout=None) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", OLLAMA_PULL_URL, json={"name": model_name}) as response:
                 async for line in response.aiter_lines():
                     if line:

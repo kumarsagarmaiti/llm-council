@@ -1,5 +1,5 @@
 function isInstalledRecommendation(model, localModels = []) {
-  return Array.isArray(localModels) && localModels.some((entry) => entry?.name?.startsWith(model.name));
+  return Array.isArray(localModels) && localModels.some((entry) => entry?.name === model.name);
 }
 
 const FAMILY_CAPABILITY_SCORES = {

@@ -34,18 +34,17 @@ class QueryAnyModelTests(unittest.IsolatedAsyncioTestCase):
         mock_query_ollama.assert_awaited_once_with("llama3.1:latest", messages, timeout=600.0)
         mock_query_model.assert_not_awaited()
 
-    async def test_missing_local_model_reports_actual_fallback_model(self):
+    async def test_missing_local_tagged_model_returns_none_without_fallback(self):
         messages = [{"role": "user", "content": "hi"}]
 
         with (
             patch("backend.models_manager.list_local_models", new=AsyncMock(return_value=[{"name": "llama3.1:latest"}])),
-            patch("backend.council.query_ollama", new=AsyncMock(return_value={"content": "local"})),
+            patch("backend.council.query_ollama", new=AsyncMock(return_value={"content": "local"})) as mock_query_ollama,
         ):
             result = await council.query_any_model("deepseek-r1:14b", messages)
 
-        self.assertEqual(result["model"], "llama3.1:latest")
-        self.assertEqual(result["requested_model"], "deepseek-r1:14b")
-        self.assertEqual(result["content"], "local")
+        self.assertIsNone(result)
+        mock_query_ollama.assert_not_awaited()
 
     async def test_parallel_queries_skip_models_that_timeout(self):
         messages = [{"role": "user", "content": "hi"}]

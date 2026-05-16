@@ -26,6 +26,7 @@ export default function ChatInterface({
   const [selectedChairman, setSelectedChairman] = useState('');
   const [selectedSynthesisProfile, setSelectedSynthesisProfile] = useState('auto');
   const messagesEndRef = useRef(null);
+  const previousConversationIdRef = useRef(null);
   const effectiveChairman = selectedChairman || localModels[0]?.name || '';
   const followUpComposer = getFollowUpComposerState(conversation, localModels);
 
@@ -34,6 +35,14 @@ export default function ChatInterface({
   };
 
   useEffect(() => {
+    if (conversation?.id !== previousConversationIdRef.current) {
+      setMode('manual');
+      setInput('');
+      setSelectedChairman('');
+      setSelectedSynthesisProfile('auto');
+      previousConversationIdRef.current = conversation?.id ?? null;
+    }
+
     // Only scroll if there are actually messages
     if (conversation?.messages?.length > 0) {
       scrollToBottom();
@@ -205,20 +214,24 @@ export default function ChatInterface({
               <span>{followUpComposer.message}</span>
             </div>
             <select
+              id="synthesis-select"
               className="chairman-selector"
               value={selectedSynthesisProfile}
               onChange={(e) => setSelectedSynthesisProfile(e.target.value)}
               disabled={isLoading}
+              aria-label="Synthesis profile"
             >
               <option value="auto">Profile: Auto</option>
               <option value="concise">Profile: Concise</option>
               <option value="strategic">Profile: Strategic</option>
             </select>
             <select
+              id="chairman-select"
               className="chairman-selector"
               value={effectiveChairman}
               onChange={(e) => setSelectedChairman(e.target.value)}
               disabled={isLoading || localModels.length === 0}
+              aria-label="Chairman model"
             >
               {localModels.map((model) => (
                 <option key={model.name} value={model.name}>
@@ -229,12 +242,14 @@ export default function ChatInterface({
           </div>
           <div className="message-input-wrapper">
             <textarea
+              id="followup-textarea"
               className="message-input"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Continue the conversation..."
               rows={2}
               disabled={isLoading}
+              aria-label="Follow-up message"
             />
             <button
               type="submit"

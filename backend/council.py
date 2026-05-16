@@ -120,12 +120,6 @@ async def query_any_model(model: str, messages: List[Dict[str, str]], timeout: f
         return await with_metadata(target_model, query_ollama(target_model, messages, timeout=timeout))
 
     if ":" in model:
-        if local_models:
-            fallback_model = local_models[0]["name"]
-            print(f"Warning: Model {model} not found locally. Falling back to {fallback_model}")
-            return await with_metadata(fallback_model, query_ollama(fallback_model, messages, timeout=timeout))
-
-        print(f"Error: Local model {model} was requested but no Ollama models are installed.")
         return None
 
     return await with_metadata(model, query_model(model, messages, timeout=timeout))
@@ -406,27 +400,41 @@ Now provide your evaluation and ranking:"""
 
     # Format results
     stage2_results = []
+    recovery_jobs = []
     for model, response in responses.items():
-        if response is not None:
-            full_text = response.get('content', '')
-            parsed = parse_ranking_from_text(full_text)
-            recovered = False
-            recovered_ranking_text = None
+        if response is None:
+            continue
 
-            if not parsed:
-                recovered_ranking = await recover_stage2_ranking(model, user_query, responses_text)
-                if recovered_ranking is not None:
-                    parsed = recovered_ranking["parsed_ranking"]
-                    recovered = True
-                    recovered_ranking_text = recovered_ranking["ranking"]
+        full_text = response.get('content', '')
+        parsed = parse_ranking_from_text(full_text)
+        stage2_results.append({
+            "model": model,
+            "ranking": full_text,
+            "parsed_ranking": parsed,
+            "ranking_recovered": False,
+            "recovered_ranking_text": None,
+        })
 
-            stage2_results.append({
-                "model": model,
-                "ranking": full_text,
-                "parsed_ranking": parsed,
-                "ranking_recovered": recovered,
-                "recovered_ranking_text": recovered_ranking_text,
-            })
+        if not parsed:
+            recovery_jobs.append(model)
+
+    if recovery_jobs:
+        recovered_rankings = await asyncio.gather(
+            *(recover_stage2_ranking(model, user_query, responses_text) for model in recovery_jobs),
+            return_exceptions=True,
+        )
+        recovered_by_model = {}
+        for model, recovered in zip(recovery_jobs, recovered_rankings):
+            if isinstance(recovered, Exception):
+                recovered = None
+            recovered_by_model[model] = recovered
+
+        for result in stage2_results:
+            recovered_ranking = recovered_by_model.get(result["model"])
+            if recovered_ranking:
+                result["parsed_ranking"] = recovered_ranking["parsed_ranking"]
+                result["ranking_recovered"] = True
+                result["recovered_ranking_text"] = recovered_ranking["ranking"]
 
     return stage2_results, label_to_model
 

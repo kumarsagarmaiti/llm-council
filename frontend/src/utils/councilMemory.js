@@ -50,8 +50,8 @@ export function estimateCouncilMemory(selectedModels, localModels = [], recommen
 
 export function assessCouncilMemory(selectedModels, localModels = [], recommendations = [], systemInfo = {}) {
   const { estimatedPeakGb } = estimateCouncilMemory(selectedModels, localModels, recommendations);
-  const totalRamGb = systemInfo.total_ram_gb || 16;
-  const availableRamGb = systemInfo.available_ram_gb || totalRamGb;
+  const totalRamGb = systemInfo.total_ram_gb ?? 16;
+  const availableRamGb = systemInfo.available_ram_gb ?? totalRamGb;
   const peakVsAvailable = availableRamGb > 0 ? estimatedPeakGb / availableRamGb : 1;
   const peakVsTotal = totalRamGb > 0 ? estimatedPeakGb / totalRamGb : 1;
 

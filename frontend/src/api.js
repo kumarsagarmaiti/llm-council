@@ -4,6 +4,32 @@
 
 const API_BASE = 'http://localhost:8001';
 
+async function consumeStreamLines(response, onLine) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+
+    for (const line of lines) {
+      onLine(line);
+    }
+  }
+
+  buffer += decoder.decode();
+  if (buffer) {
+    onLine(buffer);
+  }
+}
+
 export const api = {
   /**
    * List all conversations.
@@ -135,27 +161,16 @@ export const api = {
       throw new Error('Failed to start installation');
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            onLog(data);
-          } catch (e) {
-            console.error('Failed to parse install log:', e);
-          }
+    await consumeStreamLines(response, (line) => {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          onLog(data);
+        } catch (e) {
+          console.error('Failed to parse install log:', e);
         }
       }
-    }
+    });
   },
 
   /**
@@ -184,7 +199,7 @@ export const api = {
    * Delete a model.
    */
   async deleteModel(modelName) {
-    const response = await fetch(`${API_BASE}/api/models/${modelName}`, {
+    const response = await fetch(`${API_BASE}/api/models/${encodeURIComponent(modelName)}`, {
       method: 'DELETE',
     });
     if (!response.ok) {
@@ -197,7 +212,7 @@ export const api = {
    * Pull a model and track progress.
    */
   async pullModel(modelName, onProgress) {
-    const response = await fetch(`${API_BASE}/api/models/pull?model_name=${modelName}`, {
+    const response = await fetch(`${API_BASE}/api/models/pull?model_name=${encodeURIComponent(modelName)}`, {
       method: 'POST',
     });
 
@@ -205,34 +220,23 @@ export const api = {
       throw new Error('Failed to start model pull');
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const data = JSON.parse(line.slice(6));
-            onProgress(data);
-          } catch (e) {
-            console.error('Failed to parse pull progress:', e);
-          }
+    await consumeStreamLines(response, (line) => {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          onProgress(data);
+        } catch (e) {
+          console.error('Failed to parse pull progress:', e);
         }
       }
-    }
+    });
   },
 
   /**
    * Cancel an active model pull.
    */
   async cancelModelPull(modelName) {
-    const response = await fetch(`${API_BASE}/api/models/cancel_pull?model_name=${modelName}`, {
+    const response = await fetch(`${API_BASE}/api/models/cancel_pull?model_name=${encodeURIComponent(modelName)}`, {
       method: 'POST',
     });
     if (!response.ok) {
@@ -264,27 +268,16 @@ export const api = {
       throw new Error('Failed to send message');
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          try {
-            const event = JSON.parse(data);
-            onEvent(event.type, event);
-          } catch (e) {
-            console.error('Failed to parse SSE event:', e);
-          }
+    await consumeStreamLines(response, (line) => {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6);
+        try {
+          const event = JSON.parse(data);
+          onEvent(event.type, event);
+        } catch (e) {
+          console.error('Failed to parse SSE event:', e);
         }
       }
-    }
+    });
   },
 };
