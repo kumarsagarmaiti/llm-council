@@ -1,6 +1,7 @@
 """3-stage LLM Council orchestration."""
 
 import asyncio
+import logging
 import re
 from typing import List, Dict, Any, Tuple
 from .openrouter import query_models_parallel, query_model
@@ -10,6 +11,7 @@ import os
 PARALLEL_STAGE_TIMEOUT_SECONDS = 90.0
 CHAIRMAN_TIMEOUT_SECONDS = 180.0
 RANKING_RECOVERY_TIMEOUT_SECONDS = 30.0
+logger = logging.getLogger(__name__)
 
 
 async def resolve_council_models(models_override: List[str] = None) -> List[str]:
@@ -620,7 +622,7 @@ Title:"""
             if title and len(title) < 60:
                 return title
     except Exception:
-        pass
+        logger.exception("Failed to generate title")
 
     # Fallback: First 5 words
     words = user_query.split()
