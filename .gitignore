@@ -5,12 +5,15 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
+.mypy_cache/
 
 # Virtual environments
 .venv
 
 # Keys and secrets
 .env
+.env.*
 
 # Data files
 data/
@@ -19,3 +22,25 @@ data/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# Logs
+*.log
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Local tooling
+.claude/
+.playwright-mcp/
+
+# Specs
+docs/
+
+# Agents
+.agents
+.claude
+
+# Conversations
+data/

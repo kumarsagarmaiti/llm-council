@@ -2,7 +2,14 @@
 
 import httpx
 from typing import List, Dict, Any, Optional
-from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+import os
+
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def get_openrouter_api_key() -> Optional[str]:
+    """Read the OpenRouter API key at call time."""
+    return os.getenv("OPENROUTER_API_KEY")
 
 
 async def query_model(
@@ -21,8 +28,13 @@ async def query_model(
     Returns:
         Response dict with 'content' and optional 'reasoning_details', or None if failed
     """
+    api_key = get_openrouter_api_key()
+    if not api_key:
+        print(f"OpenRouter API key is missing. Cannot query remote model {model}.")
+        return None
+
     headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
