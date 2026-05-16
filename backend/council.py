@@ -199,6 +199,8 @@ def build_stage2_signal_summary(
     per_model_lines = []
     for result in stage2_results:
         parsed_ranking = result.get("parsed_ranking") or parse_ranking_from_text(result.get("ranking", ""))
+        if not result.get("ranking_complete"):
+            continue
         if not parsed_ranking:
             continue
 
@@ -403,14 +405,14 @@ Now provide your evaluation and ranking:"""
     # Format results
     stage2_results = []
     recovery_jobs = []
-    expected_rank_length = len(labels)
+    expected_labels = set(label_to_model)
     for model, response in responses.items():
         if response is None:
             continue
 
         full_text = response.get('content', '')
         parsed = parse_ranking_from_text(full_text)
-        ranking_complete = is_complete_ranking(parsed, expected_rank_length)
+        ranking_complete = is_complete_ranking(parsed, expected_labels)
         stage2_results.append({
             "model": model,
             "ranking": full_text,
@@ -436,7 +438,7 @@ Now provide your evaluation and ranking:"""
 
         for result in stage2_results:
             recovered_ranking = recovered_by_model.get(result["model"])
-            if recovered_ranking and is_complete_ranking(recovered_ranking["parsed_ranking"], expected_rank_length):
+            if recovered_ranking and is_complete_ranking(recovered_ranking["parsed_ranking"], expected_labels):
                 result["parsed_ranking"] = recovered_ranking["parsed_ranking"]
                 result["ranking_complete"] = True
                 result["ranking_recovered"] = True
@@ -560,9 +562,9 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
     return extract_ranking_lines(ranking_text)
 
 
-def is_complete_ranking(parsed_ranking: List[str], expected_rank_length: int) -> bool:
-    """Return True when a parsed ranking covers every expected candidate."""
-    return len(parsed_ranking) == expected_rank_length
+def is_complete_ranking(parsed_ranking: List[str], expected_labels: set[str]) -> bool:
+    """Return True when a parsed ranking matches the exact expected label set."""
+    return len(parsed_ranking) == len(expected_labels) and set(parsed_ranking) == expected_labels
 
 
 def calculate_aggregate_rankings(
@@ -576,11 +578,11 @@ def calculate_aggregate_rankings(
 
     # Track positions for each model
     model_positions = defaultdict(list)
-    expected_rank_length = len(label_to_model)
+    expected_labels = set(label_to_model)
 
     for ranking in stage2_results:
         parsed_ranking = ranking.get('parsed_ranking') or parse_ranking_from_text(ranking['ranking'])
-        if not is_complete_ranking(parsed_ranking, expected_rank_length):
+        if not is_complete_ranking(parsed_ranking, expected_labels):
             continue
 
         for position, label in enumerate(parsed_ranking, start=1):
