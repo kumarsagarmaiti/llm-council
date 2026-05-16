@@ -239,6 +239,39 @@ class StageFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Aggregate Ranking Signals", captured["prompt"])
         self.assertNotIn("Long evaluation text that should not be passed through verbatim.", captured["prompt"])
 
+    def test_aggregate_rankings_skip_partial_rankings(self):
+        label_to_model = {"Response A": "alpha", "Response B": "beta"}
+        stage2_results = [
+            {
+                "model": "judge-1",
+                "ranking": "FINAL RANKING:\n1. Response A",
+                "parsed_ranking": ["Response A"],
+            },
+            {
+                "model": "judge-2",
+                "ranking": "FINAL RANKING:\n1. Response B\n2. Response A",
+                "parsed_ranking": ["Response B", "Response A"],
+            },
+        ]
+
+        aggregate = council.calculate_aggregate_rankings(stage2_results, label_to_model)
+
+        self.assertEqual(
+            aggregate,
+            [
+                {
+                    "model": "beta",
+                    "average_rank": 1.0,
+                    "rankings_count": 1,
+                },
+                {
+                    "model": "alpha",
+                    "average_rank": 2.0,
+                    "rankings_count": 1,
+                },
+            ],
+        )
+
     async def test_stage3_strategic_profile_requests_steps_and_stages(self):
         captured = {}
 
