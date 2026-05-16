@@ -23,7 +23,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
 
   return (
     <div className="stage stage2">
-      <h3 className="stage-title">Stage 2: Peer Rankings</h3>
+      <h3 className="stage-title">Stage 2: Peer Evaluation & Rankings</h3>
 
       <h4>Raw Evaluations</h4>
       <p className="stage-description">
@@ -57,6 +57,11 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
          rankings[activeTab].parsed_ranking.length > 0 && (
           <div className="parsed-ranking">
             <strong>Extracted Ranking:</strong>
+            {rankings[activeTab].ranking_recovered && (
+              <p className="stage-description">
+                The original evaluation did not include a usable final ranking, so the app requested a strict ranking-only follow-up from this model.
+              </p>
+            )}
             <ol>
               {rankings[activeTab].parsed_ranking.map((label, i) => (
                 <li key={i}>
