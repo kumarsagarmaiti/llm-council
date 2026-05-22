@@ -93,8 +93,9 @@ async def query_models_parallel_any(
 
 
 async def query_any_model(model: str, messages: List[Dict[str, str]], timeout: float = 600.0):
-    """Query either OpenRouter or Ollama based on model name."""
+    """Query either cloud providers (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter) or Ollama based on model name."""
     from . import models_manager
+    from . import cloud_providers
 
     async def with_metadata(resolved_model: str, awaited_result):
         response = await awaited_result
@@ -107,8 +108,8 @@ async def query_any_model(model: str, messages: List[Dict[str, str]], timeout: f
             enriched["requested_model"] = model
         return enriched
 
-    if "/" in model:
-        return await with_metadata(model, query_model(model, messages, timeout=timeout))
+    if cloud_providers.is_cloud_model(model):
+        return await with_metadata(model, cloud_providers.query_cloud_model(model, messages, timeout=timeout))
 
     local_models = await models_manager.list_local_models()
     installed_names = [entry["name"] for entry in local_models]
@@ -653,6 +654,8 @@ async def run_full_council(
     """
     Run the complete 3-stage council process.
     """
+    target_models = await resolve_council_models(council_models)
+
     # Stage 1: Collect individual responses
     stage1_results = await stage1_collect_responses(user_query, models_override=council_models)
 
@@ -661,10 +664,20 @@ async def run_full_council(
         return [], [], {
             "model": "error",
             "response": "All models failed to respond. Please try again."
-        }, {}
+        }, {"failed_models": target_models}
+
+    # Calculate Stage 1 failures
+    responded_models = {res["model"] for res in stage1_results}
+    failed_models = [m for m in target_models if m not in responded_models]
 
     # Stage 2: Collect rankings
     stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results, models_override=council_models)
+
+    # Calculate Stage 2 failures
+    responded_ranking_models = {res["model"] for res in stage2_results}
+    for m in target_models:
+        if len(stage1_results) >= 2 and m not in responded_ranking_models and m not in failed_models:
+            failed_models.append(m)
 
     # Calculate aggregate rankings
     aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
@@ -681,7 +694,8 @@ async def run_full_council(
     # Prepare metadata
     metadata = {
         "label_to_model": label_to_model,
-        "aggregate_rankings": aggregate_rankings
+        "aggregate_rankings": aggregate_rankings,
+        "failed_models": failed_models
     }
 
     return stage1_results, stage2_results, stage3_result, metadata

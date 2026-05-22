@@ -11,6 +11,7 @@ function App() {
   const [currentConversationId, setCurrentConversationId] = useState(null);
   const [currentConversation, setCurrentConversation] = useState(null);
   const [localModels, setLocalModels] = useState([]);
+  const [allModels, setAllModels] = useState([]);
   const [systemInfo, setSystemInfo] = useState(null);
   const [pullingModel, setPullingModel] = useState(null);
   const [pullProgress, setPullProgress] = useState(null);
@@ -82,10 +83,11 @@ function App() {
 
   async function loadLocalModels() {
     try {
-      const models = await api.listLocalModels();
-      setLocalModels(models);
+      const response = await api.listAllModels();
+      setLocalModels(response.local || []);
+      setAllModels(response.all || []);
     } catch (error) {
-      console.error('Failed to load local models:', error);
+      console.error('Failed to load models:', error);
     }
   }
 
@@ -235,7 +237,8 @@ function App() {
     manualResponses = null,
     chairmanModel = null,
     councilModels = null,
-    synthesisProfile = 'auto'
+    synthesisProfile = 'auto',
+    files = null
   ) => {
     if (!currentConversationId) return;
 
@@ -249,14 +252,21 @@ function App() {
       }));
 
       // Create a partial assistant message
+      const tempStage1 = [...(manualResponses || [])];
+      if (files && files.length > 0) {
+        files.forEach((f) => {
+          tempStage1.push({ model: f.name, response: `Uploading and extracting text from ${f.name}...` });
+        });
+      }
+
       const assistantMessage = {
         role: 'assistant',
-        stage1: manualResponses, // If manual, show them immediately
+        stage1: tempStage1.length > 0 ? tempStage1 : null,
         stage2: null,
         stage3: null,
         metadata: null,
         loading: {
-          stage1: !manualResponses, // Only load if not manual
+          stage1: !(manualResponses || (files && files.length > 0)),
           stage2: false,
           stage3: false,
         },
@@ -267,11 +277,12 @@ function App() {
         messages: [...(prev?.messages ?? []), assistantMessage],
       }));
 
-      if (manualResponses) {
-        // Handle manual response submission
-        const result = await api.sendManualMessage(
+      if (manualResponses || (files && files.length > 0)) {
+        // Handle manual response submission (with or without files)
+        const result = await api.sendManualMessageWithFiles(
           currentConversationId,
           content,
+          files,
           manualResponses,
           chairmanModel,
           synthesisProfile,
@@ -478,7 +489,7 @@ function App() {
         conversation={currentConversation}
         onSendMessage={handleSendMessage}
         onRetrySynthesis={handleRetrySynthesis}
-        localModels={localModels}
+        localModels={allModels}
         systemInfo={systemInfo}
         pullingModel={pullingModel}
         pullProgress={pullProgress}

@@ -185,6 +185,45 @@ export const api = {
   },
 
   /**
+   * List all models (both local and cloud).
+   */
+  async listAllModels() {
+    const response = await fetch(`${API_BASE}/api/models`);
+    if (!response.ok) {
+      throw new Error('Failed to list all models');
+    }
+    return response.json();
+  },
+
+  /**
+   * Get application settings (API keys & models configuration).
+   */
+  async getSettings() {
+    const response = await fetch(`${API_BASE}/api/settings`);
+    if (!response.ok) {
+      throw new Error('Failed to get settings');
+    }
+    return response.json();
+  },
+
+  /**
+   * Save application settings.
+   */
+  async saveSettings(settings) {
+    const response = await fetch(`${API_BASE}/api/settings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(settings),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to save settings');
+    }
+    return response.json();
+  },
+
+  /**
    * Get currently active model pulls.
    */
   async getActivePulls() {
@@ -279,5 +318,77 @@ export const api = {
         }
       }
     });
+  },
+
+  /**
+   * Send a message with manual responses and/or uploaded files.
+   */
+  async sendManualMessageWithFiles(
+    conversationId,
+    content,
+    files,
+    manualResponses = null,
+    chairmanModel = null,
+    synthesisProfile = 'auto'
+  ) {
+    const formData = new FormData();
+    formData.append('content', content);
+    if (chairmanModel) {
+      formData.append('chairman_model', chairmanModel);
+    }
+    formData.append('synthesis_profile', synthesisProfile);
+    if (manualResponses) {
+      formData.append('manual_responses', JSON.stringify(manualResponses));
+    }
+    if (files && files.length > 0) {
+      files.forEach((file) => {
+        formData.append('files', file);
+      });
+    }
+
+    const response = await fetch(
+      `${API_BASE}/api/conversations/${conversationId}/manual_message_with_files`,
+      {
+        method: 'POST',
+        body: formData,
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.detail || 'Failed to send manual message with files');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Send markdown content and generate/download a PDF file.
+   */
+  async generateAndDownloadPdf(title, content) {
+    const response = await fetch(`${API_BASE}/api/pdf/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ title, content }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to generate PDF');
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    
+    const safeTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_+|_+)/g, '');
+    a.download = `${safeTitle || 'council_report'}.pdf`;
+    
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   },
 };

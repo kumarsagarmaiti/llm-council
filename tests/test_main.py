@@ -1,4 +1,5 @@
 import unittest
+import json
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -117,3 +118,63 @@ class MainApiTests(unittest.TestCase):
         self.assertIn("Tell me about Sift", contextual_query)
         self.assertIn("Sift is a personalized news app.", contextual_query)
         self.assertIn("New user message: What should I do next?", contextual_query)
+
+    def test_send_manual_message_with_files_endpoint(self):
+        client = TestClient(app, base_url="http://127.0.0.1:8001")
+        conversation = {
+            "id": "conv-1",
+            "messages": []
+        }
+        
+        manual_responses = [
+            {"model": "gpt-4", "response": "Manual response content"}
+        ]
+        
+        file_data = b"This is content from uploaded txt file."
+        
+        with (
+            patch("backend.main.storage.get_conversation", return_value=conversation),
+            patch("backend.main.storage.add_user_message"),
+            patch("backend.main.storage.add_assistant_message"),
+            patch("backend.main.storage.update_conversation_title"),
+            patch("backend.main.generate_conversation_title", new=AsyncMock(return_value="Title")),
+            patch(
+                "backend.main.stage3_synthesize_final",
+                new=AsyncMock(return_value={"model": "alpha", "response": "synthesized final response", "synthesis_profile": "auto"}),
+            ) as mock_stage3,
+        ):
+            response = client.post(
+                "/api/conversations/conv-1/manual_message_with_files",
+                data={
+                    "content": "Synthesize this data",
+                    "chairman_model": "alpha",
+                    "synthesis_profile": "auto",
+                    "manual_responses": json.dumps(manual_responses)
+                },
+                files=[
+                    ("files", ("test_file.txt", file_data, "text/plain"))
+                ]
+            )
+            
+        self.assertEqual(response.status_code, 200)
+        json_data = response.json()
+        self.assertEqual(len(json_data["stage1"]), 2)
+        self.assertEqual(json_data["stage1"][0]["model"], "gpt-4")
+        self.assertEqual(json_data["stage1"][1]["model"], "test_file.txt")
+        self.assertEqual(json_data["stage1"][1]["response"], "This is content from uploaded txt file.")
+        self.assertEqual(json_data["stage3"]["response"], "synthesized final response")
+
+    def test_generate_pdf_endpoint(self):
+        client = TestClient(app, base_url="http://127.0.0.1:8001")
+        
+        response = client.post(
+            "/api/pdf/generate",
+            json={
+                "title": "Test Title",
+                "content": "Test markdown content"
+            }
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["content-type"], "application/pdf")
+        self.assertIn("attachment; filename=test_title.pdf", response.headers["content-disposition"])

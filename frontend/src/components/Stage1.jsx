@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import { getShortModelName, getFullModelName } from '../utils/modelFormatting';
 import './Stage1.css';
 
 export default function Stage1({ responses }) {
@@ -33,7 +34,7 @@ export default function Stage1({ responses }) {
               setActiveTab(index);
             }}
           >
-            {resp.model.includes('/') ? resp.model.split('/')[1] : resp.model}
+            {getShortModelName(resp.model)}
           </button>
         ))}
       </div>
@@ -41,7 +42,7 @@ export default function Stage1({ responses }) {
       <div className="tab-content-wrapper">
         <div className="tab-content">
           <div className="tab-header">
-            <div className="model-name">{responses[activeTab].model}</div>
+            <div className="model-name">{getFullModelName(responses[activeTab].model)}</div>
             <button 
               className={`copy-button ${copiedIndex === activeTab ? 'copied' : ''}`}
               onClick={(e) => {

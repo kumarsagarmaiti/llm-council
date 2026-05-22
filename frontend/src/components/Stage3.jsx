@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { SYNTHESIS_PROFILES, getSynthesisProfileLabel } from '../utils/synthesisProfiles';
+import { api } from '../api';
+import { getFullModelName } from '../utils/modelFormatting';
 import './Stage3.css';
 
-export default function Stage3({ finalResponse, onRetry, localModels = [] }) {
+export default function Stage3({ finalResponse, onRetry, localModels = [], userQuery = 'Synthesis Report' }) {
   const [showReasoning, setShowReasoning] = useState(false);
-  const availableModels = localModels.map((model) => model.name);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const configuredModels = localModels.filter(m => !m.is_cloud || m.is_configured);
+  const availableModels = configuredModels.map((model) => model.name);
   const defaultRetryChairman = (
     finalResponse?.model && availableModels.includes(finalResponse.model)
       ? finalResponse.model
-      : localModels[0]?.name
+      : configuredModels[0]?.name
   ) || '';
   const [retryChairman, setRetryChairman] = useState(defaultRetryChairman);
   const [retryProfile, setRetryProfile] = useState(finalResponse?.synthesis_profile || 'auto');
@@ -24,13 +28,23 @@ export default function Stage3({ finalResponse, onRetry, localModels = [] }) {
 
   const isError = finalResponse.response.includes('Error:') || finalResponse.model === 'error';
 
-  const modelDisplay = finalResponse.model.includes('/') 
-    ? finalResponse.model.split('/')[1] 
-    : finalResponse.model;
+  const modelDisplay = getFullModelName(finalResponse.model);
 
-  const requestedModelDisplay = finalResponse.requested_model?.includes('/')
-    ? finalResponse.requested_model.split('/')[1]
-    : finalResponse.requested_model;
+  const requestedModelDisplay = finalResponse.requested_model
+    ? getFullModelName(finalResponse.requested_model)
+    : null;
+
+  const handleDownloadPdf = async () => {
+    setIsDownloading(true);
+    try {
+      await api.generateAndDownloadPdf(userQuery, finalResponse.response);
+    } catch (error) {
+      console.error('Failed to download PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <div className="stage stage3">
@@ -42,8 +56,8 @@ export default function Stage3({ finalResponse, onRetry, localModels = [] }) {
             value={effectiveRetryChairman}
             onChange={(e) => setRetryChairman(e.target.value)}
           >
-            {localModels.map(m => (
-              <option key={m.name} value={m.name}>Chairman: {m.name}</option>
+            {configuredModels.map(m => (
+              <option key={m.name} value={m.name}>Chairman: {getFullModelName(m.name)}</option>
             ))}
           </select>
           <select
@@ -57,6 +71,14 @@ export default function Stage3({ finalResponse, onRetry, localModels = [] }) {
               </option>
             ))}
           </select>
+          <button
+            className="download-pdf-button"
+            onClick={handleDownloadPdf}
+            disabled={isDownloading}
+            title="Download PDF report"
+          >
+            {isDownloading ? '⏳...' : '📥 PDF'}
+          </button>
           <button 
             className="retry-button"
             onClick={() => onRetry(effectiveRetryChairman, retryProfile)}
