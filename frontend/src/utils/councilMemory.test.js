@@ -24,3 +24,28 @@ test('warns when free memory is much lower than total memory', () => {
 
   assert.equal(assessment.status, 'critical');
 });
+
+test('estimates 0 GB runtime for cloud models', () => {
+  const estimate = estimateModelRuntimeGb('openai:gpt-4o', [
+    { name: 'openai:gpt-4o', is_cloud: true },
+  ]);
+  assert.equal(estimate, 0);
+
+  const legacyEstimate = estimateModelRuntimeGb('openai/gpt-4o', []);
+  assert.equal(legacyEstimate, 0);
+});
+
+test('returns safe status and 0 peak memory for cloud only council', () => {
+  const assessment = assessCouncilMemory(
+    ['openai:gpt-4o', 'anthropic:claude-3-5-sonnet-latest'],
+    [
+      { name: 'openai:gpt-4o', is_cloud: true },
+      { name: 'anthropic:claude-3-5-sonnet-latest', is_cloud: true },
+    ],
+    [],
+    { total_ram_gb: 8, available_ram_gb: 1 }
+  );
+
+  assert.equal(assessment.status, 'safe');
+  assert.equal(assessment.estimatedPeakGb, 0);
+});

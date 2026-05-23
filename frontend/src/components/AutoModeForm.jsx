@@ -22,6 +22,7 @@ export default function AutoModeForm({
 }) {
   const [query, setQuery] = useState('');
   const [selectedModels, setSelectedModels] = useState([]);
+  const availableModels = localModels.filter(m => !m.is_cloud || m.is_configured);
   const [memoryAssessment, setMemoryAssessment] = useState({
     estimatedPeakGb: 0,
     totalRamGb: 16,
@@ -31,12 +32,14 @@ export default function AutoModeForm({
   });
   const [recommendations, setRecommendations] = useState([]);
 
-  // Auto-select first 2 models if none selected
+  // Auto-select first 2 configured models if none selected
   useEffect(() => {
-    if (selectedModels.length === 0 && localModels.length >= 2) {
-      setSelectedModels([localModels[0].name, localModels[1].name]);
+    if (selectedModels.length === 0) {
+      if (availableModels.length >= 2) {
+        setSelectedModels([availableModels[0].name, availableModels[1].name]);
+      }
     }
-  }, [localModels, selectedModels]);
+  }, [availableModels, selectedModels]);
 
   // Fetch recommendations for empty state
   useEffect(() => {
@@ -50,15 +53,15 @@ export default function AutoModeForm({
         console.error('Failed to load model recommendations:', error);
       }
     };
-    if (localModels.length === 0) fetchRecs();
-  }, [localModels]);
+    if (availableModels.length === 0) fetchRecs();
+  }, [availableModels]);
 
   // Calculate RAM pressure whenever selection changes
   useEffect(() => {
     setMemoryAssessment(
-      assessCouncilMemory(selectedModels, localModels, recommendations, systemInfo),
+      assessCouncilMemory(selectedModels, availableModels, recommendations, systemInfo),
     );
-  }, [selectedModels, localModels, recommendations, systemInfo]);
+  }, [selectedModels, availableModels, recommendations, systemInfo]);
 
   const toggleModel = (modelName) => {
     setSelectedModels(prev => 
@@ -83,7 +86,7 @@ export default function AutoModeForm({
   const isRisky = memoryAssessment.status === 'warning';
   const submitState = getAutoModeSubmitState({
     isLoading,
-    localModelCount: localModels.length,
+    localModelCount: availableModels.length,
     memoryStatus: memoryAssessment.status,
   });
 
@@ -149,7 +152,7 @@ export default function AutoModeForm({
           </div>
 
           <div className="models-selection-grid">
-            {localModels.length === 0 ? (
+            {availableModels.length === 0 ? (
               <div className="no-models-wizard">
                 <p className="wizard-hint">No models installed yet. Pull these recommended models to get started:</p>
                 <div className="recommendation-row">
@@ -199,21 +202,38 @@ export default function AutoModeForm({
                 </button>
               </div>
             ) : (
-              localModels.map((model) => (
-                <div 
-                  key={model.name} 
-                  className={`model-select-card ${selectedModels.includes(model.name) ? 'selected' : ''}`}
-                  onClick={() => toggleModel(model.name)}
-                >
-                  <div className="checkbox">
-                    {selectedModels.includes(model.name) ? '✓' : ''}
+              availableModels.map((model) => {
+                const isCloud = model.is_cloud;
+                const isSelected = selectedModels.includes(model.name);
+
+                return (
+                  <div 
+                    key={model.name} 
+                    className={`model-select-card ${isCloud ? 'cloud-card' : ''} ${isSelected ? 'selected' : ''}`}
+                    onClick={() => toggleModel(model.name)}
+                    title={model.description || ''}
+                  >
+                    <div className="checkbox">
+                      {isSelected ? '✓' : ''}
+                    </div>
+                    <div className="model-details">
+                      <div className="model-name-wrapper">
+                        {isCloud && <span className="cloud-icon">☁</span>}
+                        <div className="model-name">{isCloud ? model.displayName : model.name}</div>
+                      </div>
+                      {isCloud ? (
+                        <div className="model-provider-badge">
+                          {model.provider}
+                        </div>
+                      ) : (
+                        <div className="model-size">
+                          {model.size ? (model.size / (1024**3)).toFixed(1) : '?'}GB
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="model-details">
-                    <div className="model-name">{model.name}</div>
-                    <div className="model-size">{model.size ? (model.size / (1024**3)).toFixed(1) : '?'}GB</div>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

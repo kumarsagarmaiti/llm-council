@@ -31,20 +31,20 @@ Single-model chats hide disagreement. LLM Council makes it visible through a 3-s
 
 ### Modes
 
-**Auto Mode** — Full 3-stage flow. Select council members, chairman, and a synthesis profile. Stages run automatically in sequence.
+**Auto Mode** — Full 3-stage flow. Select council members, chairman, and a synthesis profile. Stages run automatically in sequence. Supports **Hybrid Model** configurations where you can mix local Ollama models with API-based cloud models (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter) in the same council.
 
-**Manual Mode** — Paste responses from external models (ChatGPT, Claude, Gemini, etc.) directly into the app. Manual mode skips Stage 2 (peer ranking) and sends your curated responses straight to the chairman for synthesis. Add or remove model slots with the **+ Add Another Model** button. At least 2 responses required.
+**Manual Mode** — Paste responses from external models (ChatGPT, Claude, Gemini, etc.) directly into the app, or **upload research text files** (PDF, TXT, MD, CSV, JSON) to analyze and synthesize findings across different sources or models. Manual mode skips Stage 2 (peer ranking) and sends your curated or uploaded responses straight to the chairman for synthesis. Add or remove model slots with the **+ Add Another Model** button. At least 2 responses required.
 
 ## Features
 
 - Multi-model prompt execution with side-by-side outputs
 - Anonymized cross-model review and ranking
 - Final synthesis by a designated chairman model
-- Auto mode for one-shot deliberation, manual mode for pasting external responses
-- Conversation history stored locally
+- Auto mode supporting **Hybrid Councils** (mix local Ollama and cloud API models)
+- Manual mode supporting **pasted responses** and **uploaded text files** (PDF, TXT, MD, CSV, JSON) to analyze and synthesize research across different models
 - Local Ollama model discovery, pull, and deletion (with progress bar)
-- Hardware-aware model recommendations
-- Entirely local — no API keys, no internet required after model download
+- Cloud model discovery and API key configuration via Settings panel (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter)
+- Hardware-aware local model recommendations
 - Dark and light themes
 
 ## Requirements
@@ -107,7 +107,10 @@ Open **Settings & Models** (gear icon in sidebar) to discover and pull local mod
 
 ## Configuration
 
-Council members and chairman are selected dynamically from your installed Ollama models. Use the in-app **Settings & Models** panel to discover, pull, and manage models with hardware-aware recommendations.
+### Local & Cloud Models
+Council members and the chairman are selected dynamically.
+- **Local Models**: Manage and pull local models using the in-app **Settings & Models** panel (gear icon in sidebar). Recommendations are made automatically based on your system RAM and disk space. Make sure Ollama is running.
+- **Cloud Models**: Configure API keys for direct providers (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter) in the settings panel. Once a valid key is provided, the application will automatically discover, list, and enable those frontier models in your council selection dropdowns, enabling **Hybrid Council** setups.
 
 Conversation storage path defaults to `data/conversations/`. Override with the `LLM_COUNCIL_DATA_DIR` environment variable.
 

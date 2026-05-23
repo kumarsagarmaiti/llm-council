@@ -2,6 +2,25 @@
   background: var(--bg-panel);
 }
 
+.stage2-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-base);
+}
+
+.stage2-intro {
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stage2-aggregate-container {
+  padding: 18px;
+  border-top: 1px solid var(--border);
+}
+
 .stage2 h4 {
   margin: 20px 0 8px 0;
   font-family: var(--font-display);
@@ -23,7 +42,7 @@
 .aggregate-rankings {
   background: var(--bg-base);
   padding: 14px 18px;
-  margin-bottom: 20px;
+  margin-bottom: 0;
   border: 1px solid var(--border);
   border-left: 3px solid var(--green);
 }
@@ -107,7 +126,7 @@
 .stage2 .tab-content {
   background: var(--bg-panel);
   padding: 18px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .ranking-model {

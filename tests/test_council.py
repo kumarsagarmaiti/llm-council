@@ -11,13 +11,13 @@ class QueryAnyModelTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("backend.models_manager.list_local_models", new=AsyncMock(return_value=[{"name": "llama3.1:latest"}])),
-            patch("backend.council.query_model", new=AsyncMock(return_value={"content": "remote"})) as mock_query_model,
+            patch("backend.cloud_providers.query_cloud_model", new=AsyncMock(return_value={"content": "remote"})) as mock_query_cloud_model,
             patch("backend.council.query_ollama", new=AsyncMock(return_value={"content": "local"})) as mock_query_ollama,
         ):
             result = await council.query_any_model("deepseek/deepseek-r1:free", messages)
 
         self.assertEqual(result["content"], "remote")
-        mock_query_model.assert_awaited_once_with("deepseek/deepseek-r1:free", messages, timeout=600.0)
+        mock_query_cloud_model.assert_awaited_once_with("deepseek/deepseek-r1:free", messages, timeout=600.0)
         mock_query_ollama.assert_not_awaited()
 
     async def test_local_model_base_name_resolves_latest_tag(self):
@@ -294,6 +294,31 @@ class StageFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Use sections and concrete next steps.", captured["prompt"])
         self.assertIn("Preserve useful stages", captured["prompt"])
 
+    async def test_run_full_council_calculates_failed_models(self):
+        with (
+            patch("backend.council.query_models_parallel_any", new=AsyncMock()) as mock_parallel,
+            patch("backend.council.query_any_model", new=AsyncMock(return_value={"content": "Synthesis response"})),
+            patch("backend.council.resolve_council_models", new=AsyncMock(return_value=["alpha", "beta", "gamma"])),
+        ):
+            mock_parallel.side_effect = [
+                {
+                    "alpha": {"content": "Alpha response"},
+                    "beta": {"content": "Beta response"},
+                    "gamma": None
+                },
+                {
+                    "alpha": {"content": "FINAL RANKING:\n1. Response A\n2. Response B"},
+                    "beta": None
+                }
+            ]
+            
+            stage1_results, stage2_results, stage3_result, metadata = await council.run_full_council(
+                "question",
+                council_models=["alpha", "beta", "gamma"]
+            )
+            
+        self.assertEqual(metadata["failed_models"], ["gamma", "beta"])
+
 
 class RankingParsingTests(unittest.TestCase):
     def test_parse_ranking_ignores_mentions_outside_ranking_section(self):
@@ -304,3 +329,41 @@ class RankingParsingTests(unittest.TestCase):
         )
 
         self.assertEqual(council.parse_ranking_from_text(ranking), [])
+
+    def test_parse_ranking_case_insensitive_and_normalized(self):
+        ranking = (
+            "Some preamble...\n"
+            "final ranking:\n"
+            "1. response b\n"
+            "2. RESPONSE A\n"
+        )
+        self.assertEqual(council.parse_ranking_from_text(ranking), ["Response B", "Response A"])
+
+    def test_parse_ranking_various_formats(self):
+        ranking = (
+            "FINAL RANKING:\n"
+            "- response b\n"
+            "* Response a\n"
+        )
+        self.assertEqual(council.parse_ranking_from_text(ranking), ["Response B", "Response A"])
+
+    def test_parse_ranking_fallback_regex_case_insensitive(self):
+        ranking = (
+            "FINAL RANKING:\n"
+            "We choose response b first and then response a."
+        )
+        self.assertEqual(council.parse_ranking_from_text(ranking), ["Response B", "Response A"])
+
+    def test_parse_ranking_filters_unexpected_labels(self):
+        ranking = (
+            "FINAL RANKING:\n"
+            "1. Response B\n"
+            "2. Response C\n"
+            "3. Response A\n"
+        )
+        # Expected labels only contains A and B, so C should be filtered out
+        expected = {"Response A", "Response B"}
+        self.assertEqual(
+            council.parse_ranking_from_text(ranking, expected_labels=expected),
+            ["Response B", "Response A"]
+        )

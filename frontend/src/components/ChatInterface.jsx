@@ -6,6 +6,7 @@ import Stage3 from './Stage3';
 import ManualResponseForm from './ManualResponseForm';
 import AutoModeForm from './AutoModeForm';
 import { getFollowUpComposerState } from '../utils/conversationFlow';
+import { getFullModelName } from '../utils/modelFormatting';
 import './ChatInterface.css';
 
 export default function ChatInterface({
@@ -25,32 +26,33 @@ export default function ChatInterface({
   const [input, setInput] = useState('');
   const [selectedChairman, setSelectedChairman] = useState('');
   const [selectedSynthesisProfile, setSelectedSynthesisProfile] = useState('auto');
+  const currentConvId = conversation?.id ?? null;
+  const [prevConvId, setPrevConvId] = useState(currentConvId);
   const messagesEndRef = useRef(null);
-  const previousConversationIdRef = useRef(null);
-  const effectiveChairman = selectedChairman || localModels[0]?.name || '';
-  const followUpComposer = getFollowUpComposerState(conversation, localModels);
+  const configuredModels = localModels.filter(m => !m.is_cloud || m.is_configured);
+  const effectiveChairman = selectedChairman || configuredModels[0]?.name || '';
+  const followUpComposer = getFollowUpComposerState(conversation, configuredModels);
+
+  if (currentConvId !== prevConvId) {
+    setPrevConvId(currentConvId);
+    setMode('manual');
+    setInput('');
+    setSelectedChairman('');
+    setSelectedSynthesisProfile('auto');
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
   useEffect(() => {
-    if (conversation?.id !== previousConversationIdRef.current) {
-      setMode('manual');
-      setInput('');
-      setSelectedChairman('');
-      setSelectedSynthesisProfile('auto');
-      previousConversationIdRef.current = conversation?.id ?? null;
-    }
-
-    // Only scroll if there are actually messages
     if (conversation?.messages?.length > 0) {
       scrollToBottom();
     }
-  }, [conversation]);
+  }, [conversation?.messages?.length]);
 
-  const handleManualSubmit = (query, manualResponses) => {
-    onSendMessage(query, manualResponses, effectiveChairman, null, selectedSynthesisProfile);
+  const handleManualSubmit = (query, manualResponses, files) => {
+    onSendMessage(query, manualResponses, effectiveChairman, null, selectedSynthesisProfile, files);
   };
 
   const handleAutoSubmit = (query, councilModels) => {
@@ -148,6 +150,12 @@ export default function ChatInterface({
                 <div className="assistant-message">
                   <div className="message-label">LLM Council</div>
 
+                  {msg.metadata?.failed_models && msg.metadata.failed_models.length > 0 && (
+                    <div className="failed-models-warning">
+                      ⚠️ <strong>Notice:</strong> The following models failed to respond: {msg.metadata.failed_models.map(m => getFullModelName(m)).join(', ')}.
+                    </div>
+                  )}
+
                   {/* Stage 1 */}
                   {msg.loading?.stage1 && (
                     <div className="stage-loading">
@@ -185,6 +193,7 @@ export default function ChatInterface({
                       finalResponse={msg.stage3} 
                       onRetry={onRetrySynthesis}
                       localModels={localModels}
+                      userQuery={index > 0 ? conversation.messages[index - 1].content : 'Synthesis Report'}
                     />
                   )}
                 </div>
@@ -230,12 +239,12 @@ export default function ChatInterface({
               className="chairman-selector"
               value={effectiveChairman}
               onChange={(e) => setSelectedChairman(e.target.value)}
-              disabled={isLoading || localModels.length === 0}
+              disabled={isLoading || configuredModels.length === 0}
               aria-label="Chairman model"
             >
-              {localModels.map((model) => (
+              {configuredModels.map((model) => (
                 <option key={model.name} value={model.name}>
-                  Chairman: {model.name}
+                  Chairman: {getFullModelName(model.name)}
                 </option>
               ))}
             </select>

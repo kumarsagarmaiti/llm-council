@@ -183,7 +183,8 @@ def add_assistant_message(
     conversation_id: str,
     stage1: List[Dict[str, Any]],
     stage2: List[Dict[str, Any]],
-    stage3: Dict[str, Any]
+    stage3: Dict[str, Any],
+    metadata: Dict[str, Any] = None
 ):
     """
     Add an assistant message with all 3 stages to a conversation.
@@ -193,6 +194,7 @@ def add_assistant_message(
         stage1: List of individual model responses
         stage2: List of model rankings
         stage3: Final synthesized response
+        metadata: Optional metadata for the message
     """
     conversation = get_conversation(conversation_id)
     if conversation is None:
@@ -202,7 +204,8 @@ def add_assistant_message(
         "role": "assistant",
         "stage1": stage1,
         "stage2": stage2,
-        "stage3": stage3
+        "stage3": stage3,
+        "metadata": metadata
     })
 
     save_conversation(conversation)
@@ -241,3 +244,106 @@ def delete_conversation(conversation_id: str) -> bool:
     except FileNotFoundError:
         return False
     return False
+
+
+import base64
+import uuid
+import hashlib
+
+def _get_encryption_key() -> bytes:
+    """Generate a machine-specific encryption key based on system hardware UUID/MAC address."""
+    mac_node = str(uuid.getnode())
+    return hashlib.sha256(mac_node.encode('utf-8')).digest()
+
+def obfuscate_key(key: str) -> str:
+    """Obfuscate an API key using XOR encryption with the machine-specific key."""
+    if not key:
+        return ""
+    prefixed_key = f"llm_council_valid:{key}"
+    key_bytes = prefixed_key.encode('utf-8')
+    enc_key = _get_encryption_key()
+    
+    xor_bytes = bytearray(byte ^ enc_key[idx % len(enc_key)] for idx, byte in enumerate(key_bytes))
+    return base64.b64encode(xor_bytes).decode('utf-8')
+
+def deobfuscate_key(obfuscated_str: str) -> str:
+    """Deobfuscate an API key using XOR decryption with the machine-specific key."""
+    if not obfuscated_str:
+        return ""
+    try:
+        xor_bytes = base64.b64decode(obfuscated_str.encode('utf-8'))
+        enc_key = _get_encryption_key()
+        dec_bytes = bytearray(byte ^ enc_key[idx % len(enc_key)] for idx, byte in enumerate(xor_bytes))
+        dec_str = dec_bytes.decode('utf-8')
+        if dec_str.startswith("llm_council_valid:"):
+            return dec_str[len("llm_council_valid:"):]
+    except Exception:
+        pass
+    
+    return obfuscated_str
+
+SETTINGS_FILE = os.path.join(os.path.dirname(DATA_DIR), "settings.json")
+
+
+def get_settings() -> Dict[str, Any]:
+    """Load settings from settings.json, decrypting API keys."""
+    default_settings = {
+        "api_keys": {
+            "openai": "",
+            "anthropic": "",
+            "gemini": "",
+            "deepseek": "",
+            "openrouter": ""
+        },
+        "enabled_cloud_models": [
+            "openai:gpt-4o",
+            "anthropic:claude-3-5-sonnet-latest",
+            "gemini:gemini-2.5-flash",
+            "deepseek:deepseek-chat",
+            "openrouter:google/gemini-2.5-pro"
+        ],
+        "custom_cloud_models": [],
+        "discovered_cloud_models": []
+    }
+    if not os.path.exists(SETTINGS_FILE):
+        return default_settings
+    try:
+        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            merged = {}
+            api_keys = {**default_settings["api_keys"], **data.get("api_keys", {})}
+            # Decrypt/deobfuscate all api keys
+            decrypted_keys = {k: deobfuscate_key(v) for k, v in api_keys.items()}
+            merged["api_keys"] = decrypted_keys
+            merged["enabled_cloud_models"] = data.get("enabled_cloud_models", default_settings["enabled_cloud_models"])
+            merged["custom_cloud_models"] = data.get("custom_cloud_models", [])
+            merged["discovered_cloud_models"] = data.get("discovered_cloud_models", [])
+            return merged
+    except Exception as e:
+        print(f"Error reading settings: {e}")
+        return default_settings
+
+
+def save_settings(settings: Dict[str, Any]):
+    """Save settings to settings.json, encrypting API keys."""
+    directory = os.path.dirname(SETTINGS_FILE)
+    if directory:
+        Path(directory).mkdir(parents=True, exist_ok=True)
+    
+    # Encrypt/obfuscate all api keys before saving
+    settings_copy = dict(settings)
+    if "api_keys" in settings_copy:
+        encrypted_keys = {k: obfuscate_key(v) for k, v in settings_copy["api_keys"].items()}
+        settings_copy["api_keys"] = encrypted_keys
+
+    fd, temp_path = tempfile.mkstemp(dir=directory or ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(settings_copy, f, indent=2)
+        os.replace(temp_path, SETTINGS_FILE)
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+

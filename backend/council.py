@@ -93,8 +93,9 @@ async def query_models_parallel_any(
 
 
 async def query_any_model(model: str, messages: List[Dict[str, str]], timeout: float = 600.0):
-    """Query either OpenRouter or Ollama based on model name."""
+    """Query either cloud providers (OpenAI, Anthropic, Gemini, DeepSeek, OpenRouter) or Ollama based on model name."""
     from . import models_manager
+    from . import cloud_providers
 
     async def with_metadata(resolved_model: str, awaited_result):
         response = await awaited_result
@@ -107,8 +108,8 @@ async def query_any_model(model: str, messages: List[Dict[str, str]], timeout: f
             enriched["requested_model"] = model
         return enriched
 
-    if "/" in model:
-        return await with_metadata(model, query_model(model, messages, timeout=timeout))
+    if cloud_providers.is_cloud_model(model):
+        return await with_metadata(model, cloud_providers.query_cloud_model(model, messages, timeout=timeout))
 
     local_models = await models_manager.list_local_models()
     installed_names = [entry["name"] for entry in local_models]
@@ -198,7 +199,7 @@ def build_stage2_signal_summary(
 
     per_model_lines = []
     for result in stage2_results:
-        parsed_ranking = result.get("parsed_ranking") or parse_ranking_from_text(result.get("ranking", ""))
+        parsed_ranking = result.get("parsed_ranking") or parse_ranking_from_text(result.get("ranking", ""), set(label_to_model))
         if not result.get("ranking_complete"):
             continue
         if not parsed_ranking:
@@ -290,6 +291,7 @@ async def recover_stage2_ranking(
     model: str,
     user_query: str,
     responses_text: str,
+    expected_labels: set[str] = None,
 ) -> Dict[str, Any] | None:
     """Ask a model for a strict ranking-only follow-up when parsing failed."""
     recovery_prompt = build_ranking_recovery_prompt(user_query, responses_text)
@@ -302,7 +304,7 @@ async def recover_stage2_ranking(
         return None
 
     ranking_text = response.get("content", "")
-    parsed_ranking = parse_ranking_from_text(ranking_text)
+    parsed_ranking = parse_ranking_from_text(ranking_text, expected_labels)
     if not parsed_ranking:
         return None
 
@@ -361,6 +363,16 @@ async def stage2_collect_rankings(
         for label, result in zip(labels, stage1_results)
     ])
 
+    # Build dynamic example evaluations and ranking
+    example_evaluations = "\n".join([
+        f"Response {chr(65 + i)}: [Your evaluation of Response {chr(65 + i)}...]"
+        for i in range(len(stage1_results))
+    ])
+    example_ranking_items = "\n".join([
+        f"{i + 1}. Response {chr(65 + (len(stage1_results) - 1 - i))}"
+        for i in range(len(stage1_results))
+    ])
+
     ranking_prompt = f"""You are evaluating different responses to the following question:
 
 Question: {user_query}
@@ -382,14 +394,10 @@ IMPORTANT: Your final ranking MUST be formatted EXACTLY as follows:
 
 Example of the correct format for your ENTIRE response:
 
-Response A provides good detail on X but misses Y...
-Response B is accurate but lacks depth on Z...
-Response C offers the most comprehensive answer...
+{example_evaluations}
 
 FINAL RANKING:
-1. Response C
-2. Response A
-3. Response B
+{example_ranking_items}
 
 Now provide your evaluation and ranking:"""
 
@@ -411,7 +419,7 @@ Now provide your evaluation and ranking:"""
             continue
 
         full_text = response.get('content', '')
-        parsed = parse_ranking_from_text(full_text)
+        parsed = parse_ranking_from_text(full_text, expected_labels)
         ranking_complete = is_complete_ranking(parsed, expected_labels)
         stage2_results.append({
             "model": model,
@@ -427,7 +435,7 @@ Now provide your evaluation and ranking:"""
 
     if recovery_jobs:
         recovered_rankings = await asyncio.gather(
-            *(recover_stage2_ranking(model, user_query, responses_text) for model in recovery_jobs),
+            *(recover_stage2_ranking(model, user_query, responses_text, expected_labels) for model in recovery_jobs),
             return_exceptions=True,
         )
         recovered_by_model = {}
@@ -514,7 +522,7 @@ async def stage3_synthesize_final(
     return result
 
 
-def parse_ranking_from_text(ranking_text: str) -> List[str]:
+def parse_ranking_from_text(ranking_text: str, expected_labels: set[str] = None) -> List[str]:
     """
     Parse the FINAL RANKING section from the model's response.
     """
@@ -529,37 +537,51 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
                 ordered.append(item)
         return ordered
 
+    def normalize_label(label: str) -> str:
+        m = re.search(r'([A-Za-z])\s*$', label.strip())
+        if m:
+            return f"Response {m.group(1).upper()}"
+        return label
+
     def extract_ranking_lines(text: str) -> List[str]:
         labels = []
         for line in text.splitlines():
             stripped = line.strip()
-            match = re.match(r'^\d+\.\s*(Response [A-Z])\s*$', stripped)
+            # Match "1. Response A" case-insensitively
+            match = re.match(r'^\d+\.\s*(response\s*[a-z])\s*$', stripped, re.IGNORECASE)
             if match:
-                labels.append(match.group(1))
+                labels.append(normalize_label(match.group(1)))
                 continue
 
-            match = re.match(r'^[-*]\s*(Response [A-Z])\s*$', stripped)
+            # Match "- Response A" case-insensitively
+            match = re.match(r'^[-*]\s*(response\s*[a-z])\s*$', stripped, re.IGNORECASE)
             if match:
-                labels.append(match.group(1))
+                labels.append(normalize_label(match.group(1)))
                 continue
 
-            match = re.match(r'^(Response [A-Z])\s*$', stripped)
+            # Match "Response A" case-insensitively
+            match = re.match(r'^(response\s*[a-z])\s*$', stripped, re.IGNORECASE)
             if match:
-                labels.append(match.group(1))
+                labels.append(normalize_label(match.group(1)))
 
         return dedupe(labels)
 
-    # Look for "FINAL RANKING:" section
-    if "FINAL RANKING:" in ranking_text:
-        # Extract everything after "FINAL RANKING:"
-        ranking_section = ranking_text.split("FINAL RANKING:", 1)[1]
+    # Look for "FINAL RANKING:" section case-insensitively
+    match_header = re.search(r'FINAL\s*RANKING\s*:', ranking_text, re.IGNORECASE)
+    if match_header:
+        # Extract everything after the header
+        ranking_section = ranking_text[match_header.end():]
         ranked_labels = extract_ranking_lines(ranking_section)
-        if ranked_labels:
-            return ranked_labels
+        if not ranked_labels:
+            raw_matches = re.findall(r'\b[Rr]esponse\s*[A-Za-z]\b', ranking_section)
+            ranked_labels = dedupe([normalize_label(m) for m in raw_matches])
+    else:
+        ranked_labels = extract_ranking_lines(ranking_text)
 
-        return dedupe(re.findall(r'\bResponse [A-Z]\b', ranking_section))
+    if expected_labels:
+        ranked_labels = [label for label in ranked_labels if label in expected_labels]
 
-    return extract_ranking_lines(ranking_text)
+    return ranked_labels
 
 
 def is_complete_ranking(parsed_ranking: List[str], expected_labels: set[str]) -> bool:
@@ -581,7 +603,7 @@ def calculate_aggregate_rankings(
     expected_labels = set(label_to_model)
 
     for ranking in stage2_results:
-        parsed_ranking = ranking.get('parsed_ranking') or parse_ranking_from_text(ranking['ranking'])
+        parsed_ranking = ranking.get('parsed_ranking') or parse_ranking_from_text(ranking['ranking'], expected_labels)
         if not is_complete_ranking(parsed_ranking, expected_labels):
             continue
 
@@ -653,6 +675,8 @@ async def run_full_council(
     """
     Run the complete 3-stage council process.
     """
+    target_models = await resolve_council_models(council_models)
+
     # Stage 1: Collect individual responses
     stage1_results = await stage1_collect_responses(user_query, models_override=council_models)
 
@@ -661,10 +685,20 @@ async def run_full_council(
         return [], [], {
             "model": "error",
             "response": "All models failed to respond. Please try again."
-        }, {}
+        }, {"failed_models": target_models}
+
+    # Calculate Stage 1 failures
+    responded_models = {res["model"] for res in stage1_results}
+    failed_models = [m for m in target_models if m not in responded_models]
 
     # Stage 2: Collect rankings
     stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results, models_override=council_models)
+
+    # Calculate Stage 2 failures
+    responded_ranking_models = {res["model"] for res in stage2_results}
+    for m in target_models:
+        if len(stage1_results) >= 2 and m not in responded_ranking_models and m not in failed_models:
+            failed_models.append(m)
 
     # Calculate aggregate rankings
     aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
@@ -681,7 +715,8 @@ async def run_full_council(
     # Prepare metadata
     metadata = {
         "label_to_model": label_to_model,
-        "aggregate_rankings": aggregate_rankings
+        "aggregate_rankings": aggregate_rankings,
+        "failed_models": failed_models
     }
 
     return stage1_results, stage2_results, stage3_result, metadata

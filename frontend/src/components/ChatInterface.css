@@ -245,3 +245,21 @@
 
 .send-button:hover:not(:disabled) { opacity: 0.80; }
 .send-button:disabled { opacity: 0.28; cursor: not-allowed; }
+
+.failed-models-warning {
+  margin-top: 10px;
+  margin-bottom: 16px;
+  padding: 12px 18px;
+  background: var(--amber-dim);
+  border: 1px solid var(--amber);
+  border-left: 3px solid var(--amber);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 2px;
+}
+
+.failed-models-warning strong {
+  color: var(--amber);
+}
