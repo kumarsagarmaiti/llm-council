@@ -329,3 +329,41 @@ class RankingParsingTests(unittest.TestCase):
         )
 
         self.assertEqual(council.parse_ranking_from_text(ranking), [])
+
+    def test_parse_ranking_case_insensitive_and_normalized(self):
+        ranking = (
+            "Some preamble...\n"
+            "final ranking:\n"
+            "1. response b\n"
+            "2. RESPONSE A\n"
+        )
+        self.assertEqual(council.parse_ranking_from_text(ranking), ["Response B", "Response A"])
+
+    def test_parse_ranking_various_formats(self):
+        ranking = (
+            "FINAL RANKING:\n"
+            "- response b\n"
+            "* Response a\n"
+        )
+        self.assertEqual(council.parse_ranking_from_text(ranking), ["Response B", "Response A"])
+
+    def test_parse_ranking_fallback_regex_case_insensitive(self):
+        ranking = (
+            "FINAL RANKING:\n"
+            "We choose response b first and then response a."
+        )
+        self.assertEqual(council.parse_ranking_from_text(ranking), ["Response B", "Response A"])
+
+    def test_parse_ranking_filters_unexpected_labels(self):
+        ranking = (
+            "FINAL RANKING:\n"
+            "1. Response B\n"
+            "2. Response C\n"
+            "3. Response A\n"
+        )
+        # Expected labels only contains A and B, so C should be filtered out
+        expected = {"Response A", "Response B"}
+        self.assertEqual(
+            council.parse_ranking_from_text(ranking, expected_labels=expected),
+            ["Response B", "Response A"]
+        )

@@ -302,7 +302,8 @@ def get_settings() -> Dict[str, Any]:
             "deepseek:deepseek-chat",
             "openrouter:google/gemini-2.5-pro"
         ],
-        "custom_cloud_models": []
+        "custom_cloud_models": [],
+        "discovered_cloud_models": []
     }
     if not os.path.exists(SETTINGS_FILE):
         return default_settings
@@ -316,6 +317,7 @@ def get_settings() -> Dict[str, Any]:
             merged["api_keys"] = decrypted_keys
             merged["enabled_cloud_models"] = data.get("enabled_cloud_models", default_settings["enabled_cloud_models"])
             merged["custom_cloud_models"] = data.get("custom_cloud_models", [])
+            merged["discovered_cloud_models"] = data.get("discovered_cloud_models", [])
             return merged
     except Exception as e:
         print(f"Error reading settings: {e}")

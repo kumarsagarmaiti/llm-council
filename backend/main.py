@@ -49,6 +49,7 @@ class SettingsUpdateRequest(BaseModel):
     api_keys: Dict[str, str]
     enabled_cloud_models: List[str]
     custom_cloud_models: List[str]
+    discovered_cloud_models: List[str] = []
 
 
 
@@ -115,8 +116,49 @@ async def get_settings():
 
 @app.post("/api/settings")
 async def update_settings(request: SettingsUpdateRequest):
-    """Update persistent settings."""
-    storage.save_settings(request.dict())
+    """Update persistent settings after validating new API keys."""
+    # Load current settings to compare keys
+    old_settings = storage.get_settings()
+    old_keys = old_settings.get("api_keys", {})
+    
+    enabled_cloud_models = list(request.enabled_cloud_models)
+    discovered_cloud_models = list(request.discovered_cloud_models)
+    
+    for provider in ["openai", "anthropic", "gemini", "deepseek", "openrouter"]:
+        old_key = old_keys.get(provider, "")
+        new_key = request.api_keys.get(provider, "")
+        
+        provider_discovered = [m for m in discovered_cloud_models if m.startswith(f"{provider}:")]
+        
+        # If the key changed, or we have a key but no discovered models for this provider
+        if new_key != old_key or (new_key and not provider_discovered):
+            if not new_key:
+                # Key was removed. Remove all models starting with provider:
+                enabled_cloud_models = [m for m in enabled_cloud_models if not m.startswith(f"{provider}:")]
+                discovered_cloud_models = [m for m in discovered_cloud_models if not m.startswith(f"{provider}:")]
+            else:
+                # Key was added or updated. Validate it and fetch its models.
+                try:
+                    fetched_models = await cloud_providers.verify_key_and_fetch_models(provider, new_key)
+                    
+                    # 1. Update discovered models list
+                    discovered_cloud_models = [m for m in discovered_cloud_models if not m.startswith(f"{provider}:")]
+                    discovered_cloud_models.extend(fetched_models)
+                    
+                    # 2. Update enabled models list (clear existing first, keep deselected by default)
+                    enabled_cloud_models = [m for m in enabled_cloud_models if not m.startswith(f"{provider}:")]
+                except Exception as e:
+                    logger.error(f"Failed to validate {provider} API key: {e}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to validate {provider.capitalize()} API key: {str(e)}"
+                    )
+                    
+    # Save the updated settings (including updated lists)
+    updated_data = request.dict()
+    updated_data["enabled_cloud_models"] = enabled_cloud_models
+    updated_data["discovered_cloud_models"] = discovered_cloud_models
+    storage.save_settings(updated_data)
     return {"status": "success"}
 
 

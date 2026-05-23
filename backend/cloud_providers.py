@@ -113,6 +113,123 @@ def is_provider_configured(provider: str) -> bool:
     return bool(get_api_key(provider))
 
 
+FRONTIER_KEYWORDS = [
+    # OpenAI
+    "gpt-4o", "gpt-4o-mini", "o1", "o3-mini", "gpt-4-turbo",
+    # Anthropic
+    "claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus",
+    # Gemini
+    "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash",
+    # DeepSeek
+    "deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro", "deepseek-v4-flash",
+]
+
+
+def is_recommended_frontier_model(model_name: str) -> bool:
+    """Check if the model is a recommended frontier model."""
+    name_lower = model_name.lower()
+    if ":" in name_lower:
+        name_lower = name_lower.split(":", 1)[1]
+    return any(kw in name_lower for kw in FRONTIER_KEYWORDS)
+
+
+async def verify_key_and_fetch_models(provider: str, api_key: str) -> List[str]:
+    """Test the connection for the API key and return a list of valid model identifiers."""
+    provider = provider.lower()
+    models = []
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        if provider == "openai":
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+            }
+            response = await client.get("https://api.openai.com/v1/models", headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                model_id_lower = model_id.lower()
+                is_chat = (
+                    model_id_lower.startswith("gpt-") or 
+                    model_id_lower.startswith("o1-") or 
+                    model_id_lower.startswith("o3-") or
+                    model_id_lower == "o1" or
+                    model_id_lower == "o3" or
+                    model_id_lower.startswith("ft:gpt-")
+                )
+                if is_chat:
+                    models.append(f"openai:{model_id}")
+            models.sort()
+                    
+        elif provider == "anthropic":
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            }
+            response = await client.get("https://api.anthropic.com/v1/models", headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                if model_id:
+                    models.append(f"anthropic:{model_id}")
+            models.sort()
+                    
+        elif provider == "gemini":
+            headers = {
+                "x-goog-api-key": api_key
+            }
+            response = await client.get("https://generativelanguage.googleapis.com/v1beta/models", headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            for m in data.get("models", []):
+                name = m.get("name", "")
+                if name.startswith("models/"):
+                    model_id = name[len("models/"):]
+                else:
+                    model_id = name
+                
+                supported_methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in supported_methods and model_id:
+                    models.append(f"gemini:{model_id}")
+            models.sort()
+                    
+        elif provider == "deepseek":
+            headers = {
+                "Authorization": f"Bearer {api_key}"
+            }
+            response = await client.get("https://api.deepseek.com/models", headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                if model_id:
+                    models.append(f"deepseek:{model_id}")
+            models.sort()
+                    
+        elif provider == "openrouter":
+            headers = {
+                "Authorization": f"Bearer {api_key}"
+            }
+            response = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            for m in data.get("data", []):
+                model_id = m.get("id", "")
+                is_non_chat = any(kw in model_id.lower() for kw in [
+                    "embedding", "embed", "whisper", "dall-e", "stable-diffusion",
+                    "tts", "flux", "cogvideo", "image", "video", "speech"
+                ])
+                if model_id and not is_non_chat:
+                    models.append(f"openrouter:{model_id}")
+            models.sort()
+                    
+        else:
+            raise ValueError(f"Unknown provider: {provider}")
+            
+    return models
+
+
 def is_cloud_model(model: str) -> bool:
     """Check if the model identifier represents a cloud model."""
     prefixes = ("openai:", "anthropic:", "gemini:", "deepseek:", "openrouter:")
@@ -329,20 +446,54 @@ async def query_cloud_model(model: str, messages: List[Dict[str, str]], timeout:
 def get_available_cloud_models() -> List[Dict[str, Any]]:
     """Get the list of cloud models configured/enabled by the user."""
     settings = storage.get_settings()
-    enabled = set(settings.get("enabled_cloud_models", []))
+    enabled = settings.get("enabled_cloud_models", [])
     customs = settings.get("custom_cloud_models", [])
 
     results = []
     
-    # Process defaults
-    for model in DEFAULT_CLOUD_MODELS:
-        provider = model["provider"].lower()
-        # Only return model if it is enabled
-        if model["name"] in enabled:
-            # Enriched with key status
+    # We can create a map of DEFAULT_CLOUD_MODELS for quick lookup to preserve display names/descriptions
+    default_map = {m["name"]: m for m in DEFAULT_CLOUD_MODELS}
+    
+    # Track which model names we have processed to avoid duplicates
+    processed = set()
+    
+    # Process all models in enabled
+    for name in enabled:
+        if name in processed:
+            continue
+        processed.add(name)
+        
+        if name in default_map:
+            model = default_map[name]
+            provider = model["provider"].lower()
             model_copy = dict(model)
             model_copy["is_configured"] = is_provider_configured(provider)
             results.append(model_copy)
+        else:
+            # Dynamically parse provider and model ID
+            if ":" in name:
+                parts = name.split(":", 1)
+                provider = parts[0].lower()
+                model_id = parts[1]
+            else:
+                if "/" in name:
+                    provider = "openrouter"
+                    model_id = name
+                    name = f"openrouter:{name}"
+                else:
+                    provider = "openai"
+                    model_id = name
+                    name = f"openai:{name}"
+            
+            if provider in ("openai", "anthropic", "gemini", "deepseek", "openrouter"):
+                results.append({
+                    "name": name,
+                    "provider": provider.capitalize(),
+                    "displayName": model_id,
+                    "description": f"Cloud model on {provider.capitalize()}",
+                    "is_cloud": True,
+                    "is_configured": is_provider_configured(provider)
+                })
 
     # Process customs
     for custom in customs:
@@ -366,6 +517,10 @@ def get_available_cloud_models() -> List[Dict[str, Any]]:
             else:
                 provider = "openai"
                 name = f"openai:{custom}"
+
+        if name in processed:
+            continue
+        processed.add(name)
 
         results.append({
             "name": name,

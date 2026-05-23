@@ -178,3 +178,125 @@ class MainApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["content-type"], "application/pdf")
         self.assertIn("attachment; filename=test_title.pdf", response.headers["content-disposition"])
+
+    @patch("backend.main.storage.get_settings")
+    @patch("backend.main.storage.save_settings")
+    @patch("backend.main.cloud_providers.verify_key_and_fetch_models", new_callable=AsyncMock)
+    def test_update_settings_validates_changed_keys(self, mock_verify, mock_save_settings, mock_get_settings):
+        client = TestClient(app, base_url="http://127.0.0.1:8001")
+        
+        # Setup get_settings mock returning old settings
+        mock_get_settings.return_value = {
+            "api_keys": {
+                "openai": "old-openai-key",
+                "anthropic": "",
+                "gemini": "",
+                "deepseek": "",
+                "openrouter": ""
+            },
+            "enabled_cloud_models": ["openai:gpt-4o"]
+        }
+        
+        # Define mock verification behaviour
+        async def verify_side_effect(provider, api_key):
+            if provider == "anthropic" and api_key == "valid-anthropic-key":
+                return ["anthropic:claude-3-5-sonnet", "anthropic:claude-3-5-haiku", "anthropic:claude-2.0"]
+            if provider == "openai" and api_key == "old-openai-key":
+                return ["openai:gpt-4o", "openai:gpt-4o-mini", "openai:gpt-3.5-turbo"]
+            raise Exception("Invalid API key")
+        
+        mock_verify.side_effect = verify_side_effect
+        
+        # Test case 1: Update settings with invalid Anthropic key
+        response = client.post(
+            "/api/settings",
+            json={
+                "api_keys": {
+                    "openai": "old-openai-key",
+                    "anthropic": "invalid-anthropic-key",
+                    "gemini": "",
+                    "deepseek": "",
+                    "openrouter": ""
+                },
+                "enabled_cloud_models": ["openai:gpt-4o"],
+                "custom_cloud_models": []
+            }
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Failed to validate Anthropic API key: Invalid API key", response.json()["detail"])
+        mock_save_settings.assert_not_called()
+        
+        # Reset mocks
+        mock_save_settings.reset_mock()
+        mock_verify.reset_mock()
+        mock_verify.side_effect = verify_side_effect
+        
+        # Setup get_settings returning no discovered models so that OpenAI key gets verified
+        mock_get_settings.return_value = {
+            "api_keys": {
+                "openai": "old-openai-key",
+                "anthropic": "",
+                "gemini": "",
+                "deepseek": "",
+                "openrouter": ""
+            },
+            "enabled_cloud_models": ["openai:gpt-4o"],
+            "discovered_cloud_models": []
+        }
+        
+        # Test case 2: Update settings with valid Anthropic key
+        response = client.post(
+            "/api/settings",
+            json={
+                "api_keys": {
+                    "openai": "old-openai-key",
+                    "anthropic": "valid-anthropic-key",
+                    "gemini": "",
+                    "deepseek": "",
+                    "openrouter": ""
+                },
+                "enabled_cloud_models": ["openai:gpt-4o"],
+                "custom_cloud_models": [],
+                "discovered_cloud_models": []
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_save_settings.assert_called_once()
+        saved_data = mock_save_settings.call_args[0][0]
+        
+        # Verify Anthropic and OpenAI frontier models are added to discovered list but NOT auto-enabled
+        self.assertEqual(saved_data["enabled_cloud_models"], [])
+        
+        # Verify all models are in discovered_cloud_models
+        self.assertIn("openai:gpt-4o", saved_data["discovered_cloud_models"])
+        self.assertIn("openai:gpt-4o-mini", saved_data["discovered_cloud_models"])
+        self.assertIn("openai:gpt-3.5-turbo", saved_data["discovered_cloud_models"])
+        self.assertIn("anthropic:claude-3-5-sonnet", saved_data["discovered_cloud_models"])
+        self.assertIn("anthropic:claude-3-5-haiku", saved_data["discovered_cloud_models"])
+        self.assertIn("anthropic:claude-2.0", saved_data["discovered_cloud_models"])
+        
+        # Test case 3: Clearing the OpenAI key removes OpenAI models
+        mock_save_settings.reset_mock()
+        response = client.post(
+            "/api/settings",
+            json={
+                "api_keys": {
+                    "openai": "",
+                    "anthropic": "valid-anthropic-key",
+                    "gemini": "",
+                    "deepseek": "",
+                    "openrouter": ""
+                },
+                "enabled_cloud_models": ["openai:gpt-4o", "openai:gpt-4o-mini", "anthropic:claude-3-5-sonnet", "anthropic:claude-3-5-haiku"],
+                "custom_cloud_models": [],
+                "discovered_cloud_models": ["openai:gpt-4o", "openai:gpt-4o-mini", "openai:gpt-3.5-turbo", "anthropic:claude-3-5-sonnet", "anthropic:claude-3-5-haiku", "anthropic:claude-2.0"]
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        saved_data_clear = mock_save_settings.call_args[0][0]
+        # OpenAI models should be removed, Anthropic models should remain in discovered but be deselected in enabled
+        self.assertNotIn("openai:gpt-4o", saved_data_clear["enabled_cloud_models"])
+        self.assertNotIn("openai:gpt-4o-mini", saved_data_clear["enabled_cloud_models"])
+        self.assertNotIn("openai:gpt-3.5-turbo", saved_data_clear["discovered_cloud_models"])
+        self.assertNotIn("anthropic:claude-3-5-sonnet", saved_data_clear["enabled_cloud_models"])
+        self.assertIn("anthropic:claude-3-5-sonnet", saved_data_clear["discovered_cloud_models"])

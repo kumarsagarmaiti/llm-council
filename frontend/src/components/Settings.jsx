@@ -26,80 +26,7 @@ const EyeOffIcon = () => (
   </svg>
 );
 
-const DEFAULT_CLOUD_MODELS = [
-  {
-    name: 'openai:gpt-4o',
-    provider: 'OpenAI',
-    displayName: 'GPT-4o',
-    description: "OpenAI's flagship high-intelligence model",
-  },
-  {
-    name: 'openai:gpt-4o-mini',
-    provider: 'OpenAI',
-    displayName: 'GPT-4o Mini',
-    description: "OpenAI's fast, lightweight cloud model",
-  },
-  {
-    name: 'anthropic:claude-3-5-sonnet-latest',
-    provider: 'Anthropic',
-    displayName: 'Claude 3.5 Sonnet',
-    description: "Anthropic's state-of-the-art model",
-  },
-  {
-    name: 'anthropic:claude-3-5-haiku-latest',
-    provider: 'Anthropic',
-    displayName: 'Claude 3.5 Haiku',
-    description: "Anthropic's fastest, highly capable model",
-  },
-  {
-    name: 'gemini:gemini-2.5-pro',
-    provider: 'Gemini',
-    displayName: 'Gemini 2.5 Pro',
-    description: "Google's premium model for complex tasks",
-  },
-  {
-    name: 'gemini:gemini-2.5-flash',
-    provider: 'Gemini',
-    displayName: 'Gemini 2.5 Flash',
-    description: "Google's fast, efficient cloud model",
-  },
-  {
-    name: 'deepseek:deepseek-chat',
-    provider: 'DeepSeek',
-    displayName: 'DeepSeek V3',
-    description: "DeepSeek's high-efficiency chat model",
-  },
-  {
-    name: 'deepseek:deepseek-reasoner',
-    provider: 'DeepSeek',
-    displayName: 'DeepSeek R1 (Cloud)',
-    description: "DeepSeek's reasoning model on the cloud",
-  },
-  {
-    name: 'openrouter:openai/gpt-4o',
-    provider: 'OpenRouter',
-    displayName: 'GPT-4o (OpenRouter)',
-    description: "GPT-4o routed via OpenRouter",
-  },
-  {
-    name: 'openrouter:anthropic/claude-3.5-sonnet',
-    provider: 'OpenRouter',
-    displayName: 'Claude 3.5 Sonnet (OpenRouter)',
-    description: "Claude 3.5 Sonnet routed via OpenRouter",
-  },
-  {
-    name: 'openrouter:google/gemini-2.5-pro',
-    provider: 'OpenRouter',
-    displayName: 'Gemini 2.5 Pro (OpenRouter)',
-    description: "Gemini 2.5 Pro routed via OpenRouter",
-  },
-  {
-    name: 'openrouter:deepseek/deepseek-chat',
-    provider: 'OpenRouter',
-    displayName: 'DeepSeek V3 (OpenRouter)',
-    description: "DeepSeek V3 routed via OpenRouter",
-  },
-];
+
 
 const SORT_OPTIONS = [
   { value: 'recommended', label: 'Best Fit' },
@@ -147,7 +74,8 @@ export default function Settings({
       openrouter: ''
     },
     enabled_cloud_models: [],
-    custom_cloud_models: []
+    custom_cloud_models: [],
+    discovered_cloud_models: []
   });
   const [keyVisibility, setKeyVisibility] = useState({
     openai: false,
@@ -157,6 +85,7 @@ export default function Settings({
     openrouter: false
   });
   const [customModelInput, setCustomModelInput] = useState('');
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [saveStatus, setSaveStatus] = useState('');
 
   useEffect(() => { loadData(); }, []);
@@ -201,7 +130,8 @@ export default function Settings({
             openrouter: settings.api_keys?.openrouter || ''
           },
           enabled_cloud_models: settings.enabled_cloud_models || [],
-          custom_cloud_models: settings.custom_cloud_models || []
+          custom_cloud_models: settings.custom_cloud_models || [],
+          discovered_cloud_models: settings.discovered_cloud_models || []
         });
       }
     } catch (error) {
@@ -310,6 +240,19 @@ export default function Settings({
     }
   };
 
+  // Frontier models matching backend check
+  const FRONTIER_KEYWORDS = [
+    "gpt-4o", "gpt-4o-mini", "o1", "o3-mini", "gpt-4-turbo",
+    "claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus",
+    "gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro", "gemini-1.5-flash",
+    "deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro", "deepseek-v4-flash"
+  ];
+  const isFrontierModel = (name) => {
+    const nameLower = name.toLowerCase();
+    const id = nameLower.includes(':') ? nameLower.split(':', 2)[1] : nameLower;
+    return FRONTIER_KEYWORDS.some(kw => id.includes(kw));
+  };
+
   // Cloud tab handlers
   const handleApiKeyChange = (provider, value) => {
     setCloudSettings(prev => ({
@@ -371,6 +314,24 @@ export default function Settings({
     try {
       setSaveStatus('Saving...');
       await api.saveSettings(cloudSettings);
+      
+      // Reload settings to get updated models list
+      const settings = await api.getSettings();
+      if (settings) {
+        setCloudSettings({
+          api_keys: {
+            openai: settings.api_keys?.openai || '',
+            anthropic: settings.api_keys?.anthropic || '',
+            gemini: settings.api_keys?.gemini || '',
+            deepseek: settings.api_keys?.deepseek || '',
+            openrouter: settings.api_keys?.openrouter || ''
+          },
+          enabled_cloud_models: settings.enabled_cloud_models || [],
+          custom_cloud_models: settings.custom_cloud_models || [],
+          discovered_cloud_models: settings.discovered_cloud_models || []
+        });
+      }
+
       setSaveStatus('Saved successfully ✓');
       if (onModelsChanged) {
         onModelsChanged();
@@ -378,8 +339,8 @@ export default function Settings({
       setTimeout(() => setSaveStatus(''), 3000);
     } catch (error) {
       console.error('Failed to save settings:', error);
-      setSaveStatus('Error saving settings');
-      setTimeout(() => setSaveStatus(''), 3000);
+      setSaveStatus(error.message || 'Error saving settings');
+      setTimeout(() => setSaveStatus(''), 5000);
     }
   };
 
@@ -778,38 +739,99 @@ export default function Settings({
               </div>
             </div>
 
-            {/* Standard Cloud Models */}
-            <div className="cloud-section">
-              <h3>Available Cloud Models</h3>
-              <p className="cloud-section-desc">Select which default cloud models to make available in the model grid.</p>
-              <div className="cloud-models-grid">
-                {DEFAULT_CLOUD_MODELS.map(model => {
-                  const isEnabled = cloudSettings.enabled_cloud_models.includes(model.name);
-                  return (
-                    <div
-                      key={model.name}
-                      className={`cloud-model-toggle-card ${isEnabled ? 'enabled' : ''}`}
-                      onClick={() => handleModelToggle(model.name)}
-                    >
-                      <div className="cloud-model-checkbox">
-                        ✓
-                      </div>
-                      <div className="cloud-model-info">
-                        <span className="cloud-model-name">
-                          {model.displayName}
-                        </span>
-                        <span className="cloud-model-provider">
-                          {model.provider}
-                        </span>
-                        <span className="cloud-model-desc">
-                          {model.description}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            {/* Configure Active Models */}
+            {(() => {
+              const groupedDiscoveredModels = {
+                openai: [],
+                anthropic: [],
+                gemini: [],
+                deepseek: [],
+                openrouter: []
+              };
+              
+              (cloudSettings.discovered_cloud_models || []).forEach(modelName => {
+                if (modelName.includes(':')) {
+                  const [provider, id] = modelName.split(':', 2);
+                  const provLower = provider.toLowerCase();
+                  if (groupedDiscoveredModels[provLower]) {
+                    groupedDiscoveredModels[provLower].push({
+                      name: modelName,
+                      displayName: id,
+                      provider: provider.charAt(0).toUpperCase() + provider.slice(1)
+                    });
+                  }
+                }
+              });
+
+              const hasDiscovered = Object.values(groupedDiscoveredModels).some(list => list.length > 0);
+              if (!hasDiscovered) return null;
+
+              return (
+                <div className="cloud-section">
+                  <h3>Configure Active Models</h3>
+                  <p className="cloud-section-desc">Select which models to display in the Auto Council selection grid.</p>
+                  
+                  <div className="model-search-row">
+                    <input
+                      type="text"
+                      className="search-input"
+                      placeholder="Filter cloud models (e.g. gpt-4, sonnet)..."
+                      value={modelSearchQuery}
+                      onChange={(e) => setModelSearchQuery(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="providers-models-container">
+                    {Object.entries(groupedDiscoveredModels).map(([provider, models]) => {
+                      if (models.length === 0) return null;
+                      
+                      const filteredModels = models.filter(m => 
+                        m.displayName.toLowerCase().includes(modelSearchQuery.toLowerCase())
+                      );
+                      
+                      const sortedModels = [...filteredModels].sort((a, b) => {
+                        const aRec = isFrontierModel(a.name);
+                        const bRec = isFrontierModel(b.name);
+                        if (aRec && !bRec) return -1;
+                        if (!aRec && bRec) return 1;
+                        return a.displayName.localeCompare(b.displayName);
+                      });
+
+                      if (sortedModels.length === 0) return null;
+
+                      return (
+                        <div key={provider} className="provider-models-group">
+                          <h4>{provider.toUpperCase()} Models</h4>
+                          <div className="provider-models-list">
+                            {sortedModels.map(model => {
+                              const isEnabled = cloudSettings.enabled_cloud_models.includes(model.name);
+                              const isRec = isFrontierModel(model.name);
+                              return (
+                                <div 
+                                  key={model.name} 
+                                  className={`model-checkbox-item ${isEnabled ? 'checked' : ''} ${isRec ? 'recommended' : ''}`}
+                                  onClick={() => handleModelToggle(model.name)}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isEnabled}
+                                    onChange={() => {}} /* Controlled item click */
+                                  />
+                                  <div className="model-item-details">
+                                    <span className="model-item-name">{model.displayName}</span>
+                                    {isRec && <span className="recommended-badge">Frontier</span>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Custom Cloud Models */}
             <div className="cloud-section">

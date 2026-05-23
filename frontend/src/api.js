@@ -218,7 +218,8 @@ export const api = {
       body: JSON.stringify(settings),
     });
     if (!response.ok) {
-      throw new Error('Failed to save settings');
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Failed to save settings');
     }
     return response.json();
   },

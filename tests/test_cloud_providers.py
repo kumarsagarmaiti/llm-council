@@ -84,3 +84,99 @@ class CloudProvidersTests(unittest.IsolatedAsyncioTestCase):
         # Route anthropic:
         await cloud_providers.query_cloud_model("anthropic:claude-3-5-sonnet-latest", messages)
         mock_query_anthropic.assert_called_once_with("claude-3-5-sonnet-latest", messages, 120.0)
+
+    @patch("httpx.AsyncClient.get")
+    async def test_verify_key_and_fetch_models_openai(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "gpt-4o"},
+                {"id": "gpt-4o-mini"},
+                {"id": "text-embedding-3-small"},
+                {"id": "o1-mini"},
+            ]
+        }
+        mock_get.return_value = mock_resp
+        
+        models = await cloud_providers.verify_key_and_fetch_models("openai", "valid-key")
+        self.assertEqual(models, ["openai:gpt-4o", "openai:gpt-4o-mini", "openai:o1-mini"])
+        mock_get.assert_called_once_with("https://api.openai.com/v1/models", headers={"Authorization": "Bearer valid-key"})
+
+    @patch("httpx.AsyncClient.get")
+    async def test_verify_key_and_fetch_models_anthropic(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "claude-3-5-sonnet-20241022"},
+                {"id": "claude-3-5-haiku-20241022"},
+            ]
+        }
+        mock_get.return_value = mock_resp
+        
+        models = await cloud_providers.verify_key_and_fetch_models("anthropic", "valid-key")
+        self.assertEqual(models, ["anthropic:claude-3-5-haiku-20241022", "anthropic:claude-3-5-sonnet-20241022"])
+        mock_get.assert_called_once_with(
+            "https://api.anthropic.com/v1/models",
+            headers={"x-api-key": "valid-key", "anthropic-version": "2023-06-01"}
+        )
+
+    @patch("httpx.AsyncClient.get")
+    async def test_verify_key_and_fetch_models_gemini(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "models": [
+                {"name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/gemini-2.5-pro", "supportedGenerationMethods": ["generateContent"]},
+                {"name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"]},
+            ]
+        }
+        mock_get.return_value = mock_resp
+        
+        models = await cloud_providers.verify_key_and_fetch_models("gemini", "valid-key")
+        self.assertEqual(models, ["gemini:gemini-2.5-flash", "gemini:gemini-2.5-pro"])
+        mock_get.assert_called_once_with(
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            headers={"x-goog-api-key": "valid-key"}
+        )
+
+    @patch("httpx.AsyncClient.get")
+    async def test_verify_key_and_fetch_models_deepseek(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "deepseek-chat"},
+                {"id": "deepseek-reasoner"},
+            ]
+        }
+        mock_get.return_value = mock_resp
+        
+        models = await cloud_providers.verify_key_and_fetch_models("deepseek", "valid-key")
+        self.assertEqual(models, ["deepseek:deepseek-chat", "deepseek:deepseek-reasoner"])
+        mock_get.assert_called_once_with(
+            "https://api.deepseek.com/models",
+            headers={"Authorization": "Bearer valid-key"}
+        )
+
+    @patch("httpx.AsyncClient.get")
+    async def test_verify_key_and_fetch_models_openrouter(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "google/gemini-2.5-pro"},
+                {"id": "openai/gpt-4o"},
+                {"id": "openai/text-embedding-3"},
+            ]
+        }
+        mock_get.return_value = mock_resp
+        
+        models = await cloud_providers.verify_key_and_fetch_models("openrouter", "valid-key")
+        self.assertEqual(models, ["openrouter:google/gemini-2.5-pro", "openrouter:openai/gpt-4o"])
+        mock_get.assert_called_once_with(
+            "https://openrouter.ai/api/v1/models",
+            headers={"Authorization": "Bearer valid-key"}
+        )

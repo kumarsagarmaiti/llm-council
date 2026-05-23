@@ -4,15 +4,21 @@ import { getShortModelName, getFullModelName } from '../utils/modelFormatting';
 import './Stage2.css';
 
 function deAnonymizeText(text, labelToModel) {
+  if (!text) return '';
   if (!labelToModel) return text;
 
-  let result = text;
-  // Replace each "Response X" with the actual model name
-  Object.entries(labelToModel).forEach(([label, model]) => {
-    const modelShortName = getShortModelName(model);
-    result = result.replace(new RegExp(label, 'g'), `**${modelShortName}**`);
+  // Replace case-insensitively "Response [A-Za-z]" using regex
+  return text.replace(/([Rr]esponse\s*([A-Za-z]))\b/g, (match, fullLabel, letter) => {
+    const uppercaseLetter = letter.toUpperCase();
+    const standardLabel = `Response ${uppercaseLetter}`;
+    
+    if (labelToModel[standardLabel]) {
+      const modelShortName = getShortModelName(labelToModel[standardLabel]);
+      return `**${modelShortName}**`;
+    } else {
+      return `${standardLabel} (Unused)`;
+    }
   });
-  return result;
 }
 
 export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
@@ -24,13 +30,17 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
 
   return (
     <div className="stage stage2">
-      <h3 className="stage-title">Stage 2: Peer Evaluation & Rankings</h3>
+      <div className="stage2-header">
+        <h3 className="stage-title">Stage 2: Peer Evaluation & Rankings</h3>
+      </div>
 
-      <h4>Raw Evaluations</h4>
-      <p className="stage-description">
-        Each model evaluated all responses (anonymized as Response A, B, C, etc.) and provided rankings.
-        Below, model names are shown in <strong>bold</strong> for readability, but the original evaluation used anonymous labels.
-      </p>
+      <div className="stage2-intro">
+        <h4>Raw Evaluations</h4>
+        <p className="stage-description">
+          Each model evaluated all responses (anonymized as Response A, B, C, etc.) and provided rankings.
+          Below, model names are shown in <strong>bold</strong> for readability, but the original evaluation used anonymous labels.
+        </p>
+      </div>
 
       <div className="tabs">
         {rankings.map((rank, index) => (
@@ -64,39 +74,42 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
               </p>
             )}
             <ol>
-              {rankings[activeTab].parsed_ranking.map((label, i) => (
-                <li key={i}>
-                  {labelToModel && labelToModel[label]
-                    ? getShortModelName(labelToModel[label])
-                    : label}
-                </li>
-              ))}
+              {rankings[activeTab].parsed_ranking.map((label, i) => {
+                const hasModel = labelToModel && labelToModel[label];
+                return (
+                  <li key={i}>
+                    {hasModel ? getShortModelName(labelToModel[label]) : `${label} (Unused)`}
+                  </li>
+                );
+              })}
             </ol>
           </div>
         )}
       </div>
 
       {aggregateRankings && aggregateRankings.length > 0 && (
-        <div className="aggregate-rankings">
-          <h4>Aggregate Rankings (Street Cred)</h4>
-          <p className="stage-description">
-            Combined results across all peer evaluations (lower score is better):
-          </p>
-          <div className="aggregate-list">
-            {aggregateRankings.map((agg, index) => (
-              <div key={index} className="aggregate-item">
-                <span className="rank-position">#{index + 1}</span>
-                <span className="rank-model">
-                  {getShortModelName(agg.model)}
-                </span>
-                <span className="rank-score">
-                  Avg: {agg.average_rank.toFixed(2)}
-                </span>
-                <span className="rank-count">
-                  ({agg.rankings_count} votes)
-                </span>
-              </div>
-            ))}
+        <div className="stage2-aggregate-container">
+          <div className="aggregate-rankings">
+            <h4>Aggregate Rankings (Street Cred)</h4>
+            <p className="stage-description">
+              Combined results across all peer evaluations (lower score is better):
+            </p>
+            <div className="aggregate-list">
+              {aggregateRankings.map((agg, index) => (
+                <div key={index} className="aggregate-item">
+                  <span className="rank-position">#{index + 1}</span>
+                  <span className="rank-model">
+                    {getShortModelName(agg.model)}
+                  </span>
+                  <span className="rank-score">
+                    Avg: {agg.average_rank.toFixed(2)}
+                  </span>
+                  <span className="rank-count">
+                    ({agg.rankings_count} votes)
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
